@@ -1,0 +1,99 @@
+# Architecture Decision Records
+
+> Định dạng mỗi ADR: **Bối cảnh → Phương án → Quyết định → Cách kiểm chứng**
+
+---
+
+## ADR-001 – Physics timestep: Fixed vs Variable dt
+
+**Ngày:** 2026-10-24
+**Trạng thái:** Đã chốt
+
+### Bối cảnh
+
+Game cần đạt hai yêu cầu đồng thời từ SPEC v0.2:
+
+- **E3**: Kết quả vật lý tương đương trên màn hình 60Hz và 144Hz.
+- **E5**: Cùng seed + cùng chuỗi input → cùng kết quả (determinism/reproducibility).
+
+Euler integration với variable dt tích luỹ sai số khác nhau tùy framerate, khiến cả E3 lẫn E5 không thể đảm bảo về mặt toán học.
+
+### Phương án
+
+|                 | Fixed Timestep (accumulator)             | Variable dt            |
+| --------------- | ---------------------------------------- | ---------------------- |
+| Độ đơn giản     | Phức tạp hơn một chút (accumulator loop) | Đơn giản nhất          |
+| Test xác định   | ✅ Guaranteed                            | ❌ Phụ thuộc framerate |
+| E3 / E5         | ✅ Đảm bảo                               | ❌ Không đảm bảo       |
+| Spiral of death | Có (mitigated bởi dt clamp E2)           | Không                  |
+
+### Quyết định
+
+**Chọn Fixed Timestep** với `PHYSICS_STEP = 1/60 s` và accumulator pattern:
+
+```
+accumulator += clamp(dt_frame, 0, 0.05)
+while accumulator >= PHYSICS_STEP:
+    step_physics(PHYSICS_STEP)
+    accumulator -= PHYSICS_STEP
+```
+
+Spiral of death được kiểm soát bởi E2 (clamp `dt_frame ≤ 0.05 s`), giới hạn tối đa ~3 bước physics/frame.
+
+**Điều có thể làm quyết định này sai:** Nếu E5 bị loại khỏi SPEC và team không cần test determinism, variable dt đơn giản hơn đáng kể mà không có rủi ro thực tế.
+
+### Cách kiểm chứng
+
+- [ ] Unit test R1: chạy cùng sequence input với `PHYSICS_STEP` cố định, assert `y` và `vy` bằng exact value.
+- [ ] Test E3: simulate 100 frame ở 60Hz và 144Hz (bằng cách thay đổi `dt_frame`), assert `bird.y` cuối giống nhau.
+- [ ] Test E5: replay cùng seed + input sequence hai lần, assert toàn bộ state giống hệt.
+- [ ] Test E2: truyền `dt_frame = 1.0` (tab vừa quay lại), assert accumulator chỉ tạo ra ≤ 3 bước physics.
+
+---
+
+## ADR-002 – Rendering: Canvas thuần vs Phaser
+
+**Ngày:** 2026-10-24
+**Trạng thái:** Đã chốt
+
+### Bối cảnh
+
+Cần chọn lớp rendering cho game. Hai ràng buộc cứng từ AGENTS.md và SPEC:
+
+- `src/logic` chỉ chứa hàm thuần, **không import DOM/Canvas**.
+- Không thêm dependency mới khi chưa được duyệt.
+
+Game Flappy Bird là game rất nhỏ: ~5 entity (bird, 2–3 ống, background, score). Không có tilemap, animation phức tạp, hay audio phức tạp trong SPEC hiện tại.
+
+### Phương án
+
+|               | Canvas thuần (HTML5)                        | Phaser 3                                    |
+| ------------- | ------------------------------------------- | ------------------------------------------- |
+| Độ đơn giản   | ✅ Vài trăm dòng, zero boilerplate          | ❌ Scene lifecycle, ~1MB bundle             |
+| Test xác định | ✅ Logic tách hoàn toàn, Jest không cần DOM | ❌ Mock Phaser Scene rất phức tạp           |
+| Hiệu năng     | ✅ Đủ dư cho 60 FPS với game này            | ⚠️ WebGL renderer nhanh hơn, nhưng overkill |
+| Độ phụ thuộc  | ✅ Zero external dep                        | ❌ ~1MB, version lock-in, cần duyệt         |
+
+### Quyết định
+
+**Chọn Canvas thuần (HTML5 Canvas 2D)**. Ranh giới `src/logic` ↔ `src/render` được giữ rõ ràng:
+
+```
+src/
+  logic/      ← hàm thuần: physics, collision, scoring (không import DOM)
+  render/     ← Canvas 2D calls (nhận state, vẽ, không chứa logic)
+  index.ts    ← game loop, kết nối logic ↔ render ↔ input
+```
+
+**Điều có thể làm quyết định này sai:**
+
+- Scope mở rộng cần audio engine, particle system, sprite sheet animation → Phaser tiết kiệm thời gian hơn.
+- Target mobile low-end cần WebGL để đạt 60 FPS → Phaser's renderer có lợi thế thực sự.
+- Team quen Phaser hơn accumulator pattern → chi phí học ngược lại.
+
+### Cách kiểm chứng
+
+- [ ] `npm run check` xanh không có import Canvas/DOM trong `src/logic/`.
+- [ ] Test R1–R4 chạy trong Node.js (không cần browser/jsdom).
+- [ ] Đo FPS: dùng `requestAnimationFrame` timestamp, assert ≥ 60 FPS trên laptop thường trong 1 phút.
+- [ ] Kiểm tra bundle size: `dist/` không có Phaser hoặc game engine nào.
