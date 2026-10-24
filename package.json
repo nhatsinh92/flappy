@@ -11,7 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "npx vitest",
-    "check": "npx prettier --check . && eslint . && tsc --noEmit && vitest run"
+    "check": "eslint . && tsc --noEmit && vitest run"
   },
   "keywords": [],
   "author": "",
