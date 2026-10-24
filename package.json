@@ -1,0 +1,19 @@
+{
+  "name": "flappy",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "npx vitest",
+    "check": "npx vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "fast-check": "^4.10.2"
+  }
+}

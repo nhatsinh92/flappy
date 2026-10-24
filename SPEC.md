@@ -1,6 +1,6 @@
 # Flappy Bird – SPEC v0.2
 
-> **Changelog v0.2**: Làm rõ 24 điểm mơ hồ/mâu thuẫn/edge-case/giả định ngầm từ review v0.1.
+> **Changelog v0.2**: Tích hợp quyết định kiến trúc từ ADR-001 (fixed timestep) và ADR-002 (Canvas thuần); thêm R5; thêm `accumulator` vào State; sửa lỗi ví dụ Section 6 (semi-implicit Euler); thêm Section 14 Architecture.
 
 ---
 
@@ -23,11 +23,13 @@
 type Status = 'ready' | 'playing' | 'over';
 
 interface GameState {
-  bird:   { y: number; vy: number };
-  pipes:  { x: number; gapY: number; scored: boolean }[];
-  score:  number;
-  status: Status;
-  t:      number;  // thời gian game (giây), tăng khi status === 'playing'
+  bird:        { y: number; vy: number };
+  pipes:       { x: number; gapY: number; scored: boolean }[];
+  score:       number;
+  status:      Status;
+  t:           number;      // thời gian game (giây), tăng khi status === 'playing'
+  accumulator: number;      // dt dư chưa tiêu thụ; dùng cho fixed-timestep (ADR-001)
+  rng:         () => number; // PRNG có seed; được clone/forward khi spawn pipe mới (E5)
 }
 ```
 
@@ -67,12 +69,12 @@ interface GameState {
 
 ## 5. Luật
 
-- **R1 (Physics – fixed timestep):** Physics chạy theo bước cố định `PHYSICS_STEP` dùng accumulator pattern, **không** dùng dt thực của frame. Điều này đảm bảo kết quả vật lý không phụ thuộc framerate (giải E3):
+- **R1 (Physics – fixed timestep, semi-implicit Euler):** Physics chạy theo bước cố định `PHYSICS_STEP` dùng accumulator pattern, **không** dùng dt thực của frame. Tích phân theo semi-implicit Euler: vy cập nhật trước, y dùng **vy mới**. Quyết định: ADR-001.
   ```
-  accumulator += dt_frame  (dt_frame đã clamp theo E2)
+  accumulator += min(dt_frame, 0.05)        // clamp ngay tại đây (E2)
   while accumulator >= PHYSICS_STEP:
-      vy += gravity * PHYSICS_STEP
-      y  += vy * PHYSICS_STEP
+      vy += gravity * PHYSICS_STEP          // (1) update vy trước
+      y  += vy * PHYSICS_STEP               // (2) update y dùng vy MỚI → semi-implicit
       accumulator -= PHYSICS_STEP
   ```
 - **R2 (Flap):** Khi nhận input flap hợp lệ (status = `playing`), đặt `vy = flapVelocity`. Không có terminal velocity.
@@ -82,14 +84,24 @@ interface GameState {
   - Bird circle giao với AABB của ống trên hoặc ống dưới.
   - Kiểm tra xảy ra sau **mỗi bước physics** bên trong vòng lặp accumulator.
 - **R4 (Điểm):** Cộng 1 điểm đúng 1 lần khi **tâm bird (x = 80)** vượt qua **cạnh phải của ống** (`pipe.x + pipeWidth`). Đánh dấu bằng flag `scored: boolean` trong state pipe.
+- **R5 (Architecture – phân tầng):** Code được tổ chức thành 3 layer; vi phạm ranh giới là lỗi. Quyết định: ADR-002.
+  ```
+  src/
+    logic/    ← hàm thuần TypeScript, KHÔNG import DOM/Canvas/Window
+    render/   ← Canvas 2D calls; nhận GameState, không chứa game logic
+    index.ts  ← game loop; kết nối logic ↔ render ↔ input
+  ```
 
 ---
 
 ## 6. Ví dụ vào/ra (1 physics step)
 
 - Trước: `bird {y:300, vy:0}`, 1 bước `dt = 1/60 s`, không input.
-- Sau: `vy = 0 + 1800×(1/60) = 30 px/s`, `y = 300 + 0×(1/60) = 300 px`.
-  _(semi-implicit Euler: vy cập nhật trước, y dùng vy cũ)_
+- Bước (1): `vy_new = 0 + 1800 × (1/60) = 30 px/s`
+- Bước (2): `y_new  = 300 + 30 × (1/60) = 300.5 px` ← dùng **vy mới** (semi-implicit)
+
+> ⚠️ **v0.2 sai**: example cũ tính `y = 300 + 0×(1/60) = 300` (dùng vy cũ = explicit Euler).
+> R1 quy định semi-implicit, `y_new = 300.5` là giá trị chuẩn.
 
 ---
 
@@ -160,3 +172,29 @@ Khi thua, ghi log:
 - Chơi 1 phút không lỗi.
 - 60 FPS trên laptop thường (đo bằng `requestAnimationFrame` timestamp).
 - Không có tunneling: bird không xuyên đất/ống ở bất kỳ framerate nào.
+
+---
+
+## 14. Architecture (từ ADR-001, ADR-002)
+
+### Physics timestep (ADR-001) — Đã chốt
+
+| Tiêu chí | Fixed Timestep ✅ | Variable dt |
+|---|---|---|
+| E3 (framerate-independent) | ✅ Guaranteed | ❌ |
+| E5 (determinism) | ✅ Guaranteed | ❌ |
+| Spiral of death | Mitigated bởi E2 clamp | Không có |
+
+**Rủi ro đảo quyết định:** Nếu E5 bị loại khỏi SPEC và team không cần test determinism, variable dt đơn giản hơn đáng kể.
+
+### Rendering (ADR-002) — Đã chốt
+
+| Tiêu chí | Canvas thuần ✅ | Phaser 3 |
+|---|---|---|
+| Bundle size | ~0 KB overhead | ~1 MB |
+| Test logic (Node.js, không DOM) | ✅ | ❌ Phải mock Scene |
+| Dependency mới cần duyệt | Không | Có |
+
+**Rủi ro đảo quyết định:** Scope mở rộng cần audio engine / particle system / sprite sheet → Phaser tiết kiệm hơn.
+
+> Xem chi tiết lý do và checklist kiểm chứng tại [`docs/decisions.md`](docs/decisions.md).
