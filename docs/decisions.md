@@ -12,6 +12,7 @@
 ### Bối cảnh
 
 Game cần đạt hai yêu cầu đồng thời từ SPEC v0.2:
+
 - **E3**: Kết quả vật lý tương đương trên màn hình 60Hz và 144Hz.
 - **E5**: Cùng seed + cùng chuỗi input → cùng kết quả (determinism/reproducibility).
 
@@ -19,12 +20,12 @@ Euler integration với variable dt tích luỹ sai số khác nhau tùy framera
 
 ### Phương án
 
-| | Fixed Timestep (accumulator) | Variable dt |
-|---|---|---|
-| Độ đơn giản | Phức tạp hơn một chút (accumulator loop) | Đơn giản nhất |
-| Test xác định | ✅ Guaranteed | ❌ Phụ thuộc framerate |
-| E3 / E5 | ✅ Đảm bảo | ❌ Không đảm bảo |
-| Spiral of death | Có (mitigated bởi dt clamp E2) | Không |
+|                 | Fixed Timestep (accumulator)             | Variable dt            |
+| --------------- | ---------------------------------------- | ---------------------- |
+| Độ đơn giản     | Phức tạp hơn một chút (accumulator loop) | Đơn giản nhất          |
+| Test xác định   | ✅ Guaranteed                            | ❌ Phụ thuộc framerate |
+| E3 / E5         | ✅ Đảm bảo                               | ❌ Không đảm bảo       |
+| Spiral of death | Có (mitigated bởi dt clamp E2)           | Không                  |
 
 ### Quyết định
 
@@ -58,6 +59,7 @@ Spiral of death được kiểm soát bởi E2 (clamp `dt_frame ≤ 0.05 s`), gi
 ### Bối cảnh
 
 Cần chọn lớp rendering cho game. Hai ràng buộc cứng từ AGENTS.md và SPEC:
+
 - `src/logic` chỉ chứa hàm thuần, **không import DOM/Canvas**.
 - Không thêm dependency mới khi chưa được duyệt.
 
@@ -65,12 +67,12 @@ Game Flappy Bird là game rất nhỏ: ~5 entity (bird, 2–3 ống, background,
 
 ### Phương án
 
-| | Canvas thuần (HTML5) | Phaser 3 |
-|---|---|---|
-| Độ đơn giản | ✅ Vài trăm dòng, zero boilerplate | ❌ Scene lifecycle, ~1MB bundle |
-| Test xác định | ✅ Logic tách hoàn toàn, Jest không cần DOM | ❌ Mock Phaser Scene rất phức tạp |
-| Hiệu năng | ✅ Đủ dư cho 60 FPS với game này | ⚠️ WebGL renderer nhanh hơn, nhưng overkill |
-| Độ phụ thuộc | ✅ Zero external dep | ❌ ~1MB, version lock-in, cần duyệt |
+|               | Canvas thuần (HTML5)                        | Phaser 3                                    |
+| ------------- | ------------------------------------------- | ------------------------------------------- |
+| Độ đơn giản   | ✅ Vài trăm dòng, zero boilerplate          | ❌ Scene lifecycle, ~1MB bundle             |
+| Test xác định | ✅ Logic tách hoàn toàn, Jest không cần DOM | ❌ Mock Phaser Scene rất phức tạp           |
+| Hiệu năng     | ✅ Đủ dư cho 60 FPS với game này            | ⚠️ WebGL renderer nhanh hơn, nhưng overkill |
+| Độ phụ thuộc  | ✅ Zero external dep                        | ❌ ~1MB, version lock-in, cần duyệt         |
 
 ### Quyết định
 
@@ -84,6 +86,7 @@ src/
 ```
 
 **Điều có thể làm quyết định này sai:**
+
 - Scope mở rộng cần audio engine, particle system, sprite sheet animation → Phaser tiết kiệm thời gian hơn.
 - Target mobile low-end cần WebGL để đạt 60 FPS → Phaser's renderer có lợi thế thực sự.
 - Team quen Phaser hơn accumulator pattern → chi phí học ngược lại.
