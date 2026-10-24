@@ -1,19 +1,25 @@
 {
   "name": "flappy",
   "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "dev": "vite",
     "test": "npx vitest",
-    "check": "npx vitest run"
+    "check": "npx prettier --check . && eslint . && tsc --noEmit && vitest run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "fast-check": "^4.10.2"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "fast-check": "^4.10.2",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^2.0.3"
   }
 }
