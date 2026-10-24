@@ -3,7 +3,7 @@
 PR/nhánh: ______  Người review: ______  Ngày: ______
 
 ## 1. Khớp spec
-- [ ] Mỗi luật R1–R4 trong SPEC.md có đoạn code tương ứng (ghi file:dòng).
+- [ ] Mỗi luật R1–R6 trong SPEC.md có đoạn code tương ứng (ghi file:dòng).
 - [ ] Không có hành vi nào trong code mà spec không nhắc (tính năng thừa).
 
 ## 2. Đường lỗi và edge case
