@@ -71,9 +71,10 @@
 | S2  | Pipe đã `scored`                             | Không cộng lại                 | Có   |
 | S3  | Cạnh phải còn trước x=80                     | Không cộng điểm                | Có   |
 | S4  | Cạnh phải đúng bằng x=80                     | Chưa cộng điểm (chưa vượt qua) | Có   |
-| S4b | Cạnh phải nhỏ hơn x=80                       | Cộng điểm một lần              | Có   |
-| S5  | Nhiều pipe đã qua bird                       | Mỗi pipe được tính một lần     | Có   |
+| S4b | Cạnh phải nhỏ hơn x=80, dt=`PHYSICS_STEP` (test `S4b`) | Sau dịch chuyển `27.9 - 160/60 + 52 ≈ 77.233 < 80`, cộng 1 điểm | Có |
+| S5  | Ba pipe đã qua bird, dt=`PHYSICS_STEP` (test `S5`) | Sau dịch chuyển, các cạnh phải `x - 160/60 + 52` đều < 80; cộng 3 điểm | Có |
 | S6  | Nhiều lần update                             | Score không giảm               | Có   |
+| R4.1 | Pipe đã qua nhưng dt=0 (test `R4: dt=0 does not run a physics step or increase score`) | Score và `scored` không đổi | Có |
 
 ## 7. Pipe lifecycle — `tests/logic.test.ts`
 
@@ -121,7 +122,25 @@
 
 ## 12. Tổng quan và khoảng trống
 
-- Có 55 test case trong `tests/logic.test.ts`, 2 test trong `tests/input.test.ts`, và 3 property-based test trong `tests/invariants.test.ts` (tổng 60 test case).
+- Test mới/sửa cho R6 và R4 (đều trong `tests/logic.test.ts`):
+
+| Mã | Tên test | Phạm vi |
+| --- | --- | --- |
+| S4b | `S4b: Biên trigger - birdX > pipe.x + 52 ...` | Đổi sang `dt=PHYSICS_STEP`; kỳ vọng điểm dựa trên vị trí sau khi dịch ống theo công thức trong comment. |
+| S5 | `S5: Nhiều pipe - passing 3 pipes ...` | Đổi sang `dt=PHYSICS_STEP`; tính lại ba cạnh phải sau dịch chuyển trong comment. |
+| R6.1 | `R6.1: currentPipeSpeed changes once at score 10` | Tốc độ tại score 0, 9, 10, 11, 50. |
+| R6.2 | `R6.2: score 10 moves every existing pipe by 184/60 in one physics step` | Tất cả ống hiện tại dùng tốc độ tăng. |
+| R6.3 | `R6.3: high speed preserves 220 px spacing and moves a spawned pipe on the next step` | Khoảng cách, spawn tại x=400 rồi dịch theo bước, tốc độ ở bước sau. |
+| E8.1 | `E8.1: the scoring step uses 160/60 and the following step uses 184/60` | Chuyển ngưỡng giữa hai bước riêng. |
+| E8.2 | `E8.2: a three-step frame matches three one-step frames and uses high speed after step one` | Frame nhiều bước tương đương ba lần gọi đơn; kiểm tra dịch chuyển theo từng tốc độ. |
+| E3-R6 | `E3-R6: the same 20 physics steps cross score 10 identically at 60Hz and 144Hz` | So sánh state qua ngưỡng ở hai framerate. |
+| E9.1 | `E9.1: at score 10, pipe displacement is 184/60, below birdRadius and pipeWidth` | Quãng dịch chuyển mỗi bước và giới hạn kích thước. |
+| E9.2 | `E9.2: a pipe moving at high speed collides with the bird circle after one step` | Va chạm sau một bước ở tốc độ cao. |
+| E10 | `E10: a new ready game resets score and its first pipe step uses 160/60` | Reset score và tốc độ cơ bản ở ván mới. |
+| R6.P1 | `R6 property: every integer score from 0 to 1000 maps to an allowed nondecreasing speed` | Tốc độ thuộc {160, 184} và đơn đi chiều score. |
+| R6.P2 | `R6 property replay: seeded random input crosses 10 with score and speed never decreasing` | Replay seeded qua ngưỡng; score/tốc độ không giảm. |
+
+- Tổng dự kiến sau cập nhật: 67 test trong `tests/logic.test.ts`, 2 test trong `tests/input.test.ts`, và 3 property-based test trong `tests/invariants.test.ts` (tổng 72 test case).
 - E1–E5 có test tương ứng; E6 được bao phủ bởi D3; E7 được bao phủ bởi D8.
 - Các nhóm trên không bao gồm đo FPS một phút, kiểm tra game chạy liên tục một phút, kiểm thử trực quan trên browser, hoặc benchmark hiệu năng.
 - A5 là review thủ công, không phải test tự động.

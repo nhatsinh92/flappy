@@ -1,7 +1,12 @@
 // src/main.ts
 // Khởi tạo Canvas, vòng lặp game requestAnimationFrame, xử lý input (R5 / ADR-002)
 
-import { initialState, update, type State } from "./logic/index";
+import {
+  currentPipeSpeed,
+  initialState,
+  update,
+  type State,
+} from "./logic/index";
 import { draw } from "./render/draw";
 import { createInputManager } from "./input";
 
@@ -110,6 +115,7 @@ function logDeathIfNeeded(prevState: State, nextState: State): void {
       cause,
       score: nextState.score,
       t: nextState.t,
+      pipeSpeed: currentPipeSpeed(nextState.score),
     });
   }
 }

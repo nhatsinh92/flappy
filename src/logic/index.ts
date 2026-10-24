@@ -26,6 +26,8 @@ export interface Input {
 export const GRAVITY = 1800;
 export const FLAP_VELOCITY = -420;
 export const PIPE_SPEED = 160;
+export const SPEED_UP_SCORE = 10;
+export const SPEED_UP_FACTOR = 1.15;
 export const PIPE_WIDTH = 52;
 export const PIPE_GAP = 160;
 export const BIRD_X = 80;
@@ -39,6 +41,10 @@ export const PIPE_SPACING = 220;
 export const MAX_FRAME_DT = 0.05;
 export const MIN_GAP_Y = 80;
 export const MAX_GAP_Y = 520;
+
+export function currentPipeSpeed(score: number): number {
+  return score >= SPEED_UP_SCORE ? PIPE_SPEED * SPEED_UP_FACTOR : PIPE_SPEED;
+}
 
 /** Tạo PRNG mulberry32 từ seed số nguyên (deterministic, E5). */
 export function createRng(seed: number): () => number {
@@ -164,12 +170,13 @@ function stepSimulation(
   bird: { y: number; vy: number },
   pipes: Pipe[],
   rng: () => number,
+  pipeSpeed: number,
 ): { status: Status; scoreGained: number } {
   spawnPipesIfNeeded(pipes, rng);
   bird.vy += GRAVITY * PHYSICS_STEP;
   bird.y += bird.vy * PHYSICS_STEP;
   for (const pipe of pipes) {
-    pipe.x -= PIPE_SPEED * PHYSICS_STEP;
+    pipe.x -= pipeSpeed * PHYSICS_STEP;
   }
   const boundaryStatus = checkBoundaryCollision(bird);
   if (boundaryStatus === "over" || checkPipeCollision(bird.y, pipes)) {
@@ -200,7 +207,7 @@ export function update<T extends State>(
     bird.vy = FLAP_VELOCITY;
   }
   let pipes = state.pipes.map((p) => ({ ...p }));
-  let score = state.score + updateScoring(pipes);
+  let score = state.score;
   pipes = pipes.filter((p) => p.x + PIPE_WIDTH >= 0);
   let status: Status = checkBoundaryCollision(bird);
   if (status === "over" || checkPipeCollision(bird.y, pipes)) {
@@ -210,10 +217,12 @@ export function update<T extends State>(
   let accumulator =
     state.accumulator + Math.min(Math.max(dtFrame, 0), MAX_FRAME_DT);
   let t = state.t;
-  while (accumulator >= PHYSICS_STEP && status === "playing") {
+  while (accumulator >= PHYSICS_STEP - Number.EPSILON && status === "playing") {
     accumulator -= PHYSICS_STEP;
+    if (accumulator < 0 && accumulator > -Number.EPSILON) accumulator = 0;
     t += PHYSICS_STEP;
-    const stepResult = stepSimulation(bird, pipes, rng);
+    const stepPipeSpeed = currentPipeSpeed(score);
+    const stepResult = stepSimulation(bird, pipes, rng, stepPipeSpeed);
     status = stepResult.status;
     score += stepResult.scoreGained;
     pipes = pipes.filter((p) => p.x + PIPE_WIDTH >= 0);
