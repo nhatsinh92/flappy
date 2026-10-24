@@ -40,6 +40,10 @@ export const MAX_FRAME_DT = 0.05;
 export const MIN_GAP_Y = 80;
 export const MAX_GAP_Y = 520;
 
+export function currentPipeSpeed(_score: number): number {
+  return PIPE_SPEED;
+}
+
 /** Tạo PRNG mulberry32 từ seed số nguyên (deterministic, E5). */
 export function createRng(seed: number): () => number {
   let s = seed >>> 0;

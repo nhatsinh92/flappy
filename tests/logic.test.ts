@@ -3,12 +3,17 @@
 // Scope: Pure logic tests for src/logic/index.ts
 
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   createRng,
+  currentPipeSpeed,
   initialState,
   update,
+  BIRD_RADIUS,
+  PHYSICS_STEP,
+  PIPE_WIDTH,
   State,
   Input,
   Pipe,
@@ -26,6 +31,10 @@ function createBaseState(overrides: Partial<State> = {}): State {
     rng: () => 0.5,
     ...overrides,
   };
+}
+
+function createStateAtScore(score: number, overrides: Partial<State> = {}): State {
+  return createBaseState({ ...overrides, score });
 }
 
 describe("Test Matrix – Flappy Bird Logic", () => {
@@ -407,7 +416,8 @@ describe("Test Matrix – Flappy Bird Logic", () => {
       // 27.9 + 52 = 79.9 < 80 == birdX (đã vượt qua)
       const pipe: Pipe = { x: 27.9, gapY: 300, scored: false };
       const state = createBaseState({ pipes: [pipe], score: 0 });
-      const next = update(state, noFlap, 0);
+      const next = update(state, noFlap, PHYSICS_STEP);
+      // 27.9 - 160 * (1/60) + 52 ≈ 77.233 < 80, nên tính 1 điểm sau bước.
       expect(next.score).toBe(1);
       expect(next.pipes[0].scored).toBe(true);
     });
@@ -419,9 +429,12 @@ describe("Test Matrix – Flappy Bird Logic", () => {
         { x: 27, gapY: 300, scored: false },
       ];
       const state = createBaseState({ pipes, score: 0 });
-      const next = update(state, noFlap, 0);
+      const next = update(state, noFlap, PHYSICS_STEP);
+      // Sau bước ở 160 px/s, các cạnh phải lần lượt là 10-160/60+52,
+      // 20-160/60+52, 27-160/60+52; cả ba đều < x bird (80).
       expect(next.score).toBe(3);
-      expect(next.pipes.every((p) => p.scored)).toBe(true);
+      // Bước physics cũng spawn pipe kế tiếp tại x=400; pipe mới chưa qua bird.
+      expect(next.pipes.slice(0, pipes.length).every((p) => p.scored)).toBe(true);
     });
 
     it("S6: Invariant - score never decreases across multiple updates", () => {
@@ -439,7 +452,231 @@ describe("Test Matrix – Flappy Bird Logic", () => {
   });
 
   // =========================================================================
-  // 7. Pipe lifecycle (PL1 – PL5)
+  // 7. R6: Pipe speed threshold and physics-step timing
+  // =========================================================================
+  describe("7. R6 and E8-E10: Pipe speed", () => {
+    const noFlap: Input = { flap: false };
+
+    it("R6.1: currentPipeSpeed changes once at score 10", () => {
+      expect(currentPipeSpeed(0)).toBeCloseTo(160, 9);
+      expect(currentPipeSpeed(9)).toBeCloseTo(160, 9);
+      expect(currentPipeSpeed(10)).toBeCloseTo(184, 9);
+      expect(currentPipeSpeed(11)).toBeCloseTo(184, 9);
+      expect(currentPipeSpeed(50)).toBeCloseTo(184, 9);
+    });
+
+    it("R6.2: score 10 moves every existing pipe by 184/60 in one physics step", () => {
+      const state = createStateAtScore(10, {
+        pipes: [
+          { x: 300, gapY: 300, scored: false },
+          { x: 520, gapY: 300, scored: false },
+        ],
+      });
+      const next = update(state, noFlap, PHYSICS_STEP);
+
+      expect(300 - next.pipes[0].x).toBeCloseTo(184 / 60, 9);
+      expect(520 - next.pipes[1].x).toBeCloseTo(184 / 60, 9);
+    });
+
+    it("R6.3: high speed preserves 220 px spacing and moves a spawned pipe on the next step", () => {
+      const state = createStateAtScore(10, {
+        pipes: [{ x: 180, gapY: 300, scored: false }],
+      });
+      const afterSpawn = update(state, noFlap, PHYSICS_STEP);
+
+      expect(afterSpawn.pipes).toHaveLength(2);
+      expect(afterSpawn.pipes[1].x).toBeCloseTo(400 - 184 / 60, 9);
+      expect(afterSpawn.pipes[1].x - afterSpawn.pipes[0].x).toBeCloseTo(
+        220,
+        9,
+      );
+
+      const afterNextStep = update(afterSpawn, noFlap, PHYSICS_STEP);
+      expect(
+        afterSpawn.pipes[0].x - afterNextStep.pipes[0].x,
+      ).toBeCloseTo(184 / 60, 9);
+      expect(
+        afterSpawn.pipes[1].x - afterNextStep.pipes[1].x,
+      ).toBeCloseTo(184 / 60, 9);
+    });
+
+    it("E8.1: the scoring step uses 160/60 and the following step uses 184/60", () => {
+      const state = createStateAtScore(9, {
+        pipes: [{ x: 28, gapY: 300, scored: false }],
+      });
+      const afterThresholdStep = update(state, noFlap, PHYSICS_STEP);
+
+      expect(afterThresholdStep.score).toBe(10);
+      expect(28 - afterThresholdStep.pipes[0].x).toBeCloseTo(160 / 60, 9);
+
+      const afterFollowingStep = update(
+        afterThresholdStep,
+        noFlap,
+        PHYSICS_STEP,
+      );
+      expect(
+        afterThresholdStep.pipes[0].x - afterFollowingStep.pipes[0].x,
+      ).toBeCloseTo(184 / 60, 9);
+    });
+
+    it("E8.2: a three-step frame matches three one-step frames and uses high speed after step one", () => {
+      const state = createStateAtScore(9, {
+        pipes: [{ x: 28, gapY: 300, scored: false }],
+      });
+      const batched = update(state, noFlap, 3 / 60);
+      let stepped = state;
+      for (let i = 0; i < 3; i++) {
+        stepped = update(stepped, noFlap, PHYSICS_STEP);
+      }
+
+      expect(batched.score).toBe(stepped.score);
+      expect(batched.bird).toEqual(stepped.bird);
+      expect(batched.pipes.map((pipe) => pipe.x)).toEqual(
+        stepped.pipes.map((pipe) => pipe.x),
+      );
+      expect(batched.score).toBe(10);
+      // Step 1: 160/60; steps 2 and 3: 184/60 each.
+      expect(batched.pipes[0].x).toBeCloseTo(28 - 160 / 60 - 2 * (184 / 60), 9);
+    });
+
+    it("E3-R6: the same 20 physics steps cross score 10 identically at 60Hz and 144Hz", () => {
+      const start = () =>
+        createStateAtScore(9, {
+          pipes: [{ x: 28, gapY: 300, scored: false }],
+        });
+      let state60 = start();
+      let state144 = start();
+
+      for (let i = 0; i < 20; i++) {
+        state60 = update(state60, noFlap, 1 / 60);
+      }
+      for (let i = 0; i < 48; i++) {
+        state144 = update(state144, noFlap, 1 / 144);
+      }
+
+      expect(state60.score).toBe(10);
+      expect(state144.score).toBe(10);
+      expect(state60.bird.y).toBeCloseTo(state144.bird.y, 9);
+      expect(state60.pipes.map((pipe) => pipe.x)).toHaveLength(
+        state144.pipes.length,
+      );
+      state60.pipes.forEach((pipe, index) => {
+        expect(pipe.x).toBeCloseTo(state144.pipes[index].x, 9);
+      });
+    });
+
+    it("E9.1: at score 10, pipe displacement is 184/60, below birdRadius and pipeWidth", () => {
+      const state = createStateAtScore(10, {
+        pipes: [{ x: 300, gapY: 300, scored: false }],
+      });
+      const next = update(state, noFlap, PHYSICS_STEP);
+      const displacement = 300 - next.pipes[0].x;
+
+      expect(displacement).toBeCloseTo(184 / 60, 9);
+      expect(displacement).toBeLessThan(BIRD_RADIUS);
+      expect(displacement).toBeLessThan(PIPE_WIDTH);
+    });
+
+    it("E9.2: a pipe moving at high speed collides with the bird circle after one step", () => {
+      const state = createStateAtScore(10, {
+        bird: { y: 200, vy: 0 },
+        pipes: [{ x: 94.8, gapY: 300, scored: false }],
+      });
+      const next = update(state, noFlap, PHYSICS_STEP);
+
+      expect(next.status).toBe("over");
+      expect(94.8 - next.pipes[0].x).toBeCloseTo(184 / 60, 9);
+    });
+
+    it("E10: a new ready game resets score and its first pipe step uses 160/60", () => {
+      const previousGame = createStateAtScore(10, { status: "over" });
+      expect(previousGame.score).toBe(10);
+
+      const ready = initialState(42);
+      expect(ready.score).toBe(0);
+      expect(currentPipeSpeed(ready.score)).toBeCloseTo(160, 9);
+
+      const playing = { ...ready, status: "playing" as const };
+      const firstStep = update(playing, noFlap, PHYSICS_STEP);
+      expect(firstStep.pipes).toHaveLength(1);
+      expect(400 - firstStep.pipes[0].x).toBeCloseTo(160 / 60, 9);
+    });
+
+    it("R6 property: every integer score from 0 to 1000 maps to an allowed nondecreasing speed", () => {
+      fc.assert(
+        fc.property(fc.integer({ min: 0, max: 1000 }), (score) => {
+          const speed = currentPipeSpeed(score);
+          expect([160, 184]).toContain(speed);
+          if (score > 0) {
+            expect(speed).toBeGreaterThanOrEqual(currentPipeSpeed(score - 1));
+          }
+        }),
+        { numRuns: 100 },
+      );
+    });
+
+    it("R6 property replay: seeded random input crosses 10 with score and speed never decreasing", () => {
+      const frameInputs = fc.array(
+        fc.record({
+          flap: fc.boolean(),
+          dt: fc.double({ min: 0.001, max: 0.05, noNaN: true }),
+        }),
+        { minLength: 1, maxLength: 50 },
+      );
+
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 0, max: 0xffffffff }),
+          frameInputs,
+          (seed, inputs) => {
+            const run = () => {
+              let state = createStateAtScore(9, {
+                pipes: [{ x: 28, gapY: 300, scored: false }],
+                rng: createRng(seed),
+              });
+              let previousScore = state.score;
+              let previousSpeed = currentPipeSpeed(state.score);
+
+              state = update(state, noFlap, PHYSICS_STEP);
+              expect(state.score).toBe(10);
+
+              for (const input of inputs) {
+                state = update(state, input, input.dt);
+                const speed = currentPipeSpeed(state.score);
+                expect(state.score).toBeGreaterThanOrEqual(previousScore);
+                expect(speed).toBeGreaterThanOrEqual(previousSpeed);
+                previousScore = state.score;
+                previousSpeed = speed;
+              }
+              return state;
+            };
+
+            const first = run();
+            const replay = run();
+            expect(first.bird).toEqual(replay.bird);
+            expect(first.pipes).toEqual(replay.pipes);
+            expect(first.score).toBe(replay.score);
+            expect(first.status).toBe(replay.status);
+            expect(first.t).toBeCloseTo(replay.t, 9);
+          },
+        ),
+        { numRuns: 50 },
+      );
+    });
+
+    it("R4: dt=0 does not run a physics step or increase score", () => {
+      const state = createStateAtScore(9, {
+        pipes: [{ x: 20, gapY: 300, scored: false }],
+      });
+      const next = update(state, noFlap, 0);
+
+      expect(next.score).toBe(9);
+      expect(next.pipes[0].scored).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // 8. Pipe lifecycle (PL1 – PL5)
   // =========================================================================
   describe("7. Pipe lifecycle", () => {
     const noFlap: Input = { flap: false };
