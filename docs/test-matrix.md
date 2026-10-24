@@ -1,150 +1,128 @@
-# Test Matrix – Flappy Bird Logic
+# Test Matrix – Flappy Bird
 
-> Phạm vi: `src/logic/index.ts` — chỉ hàm thuần, không DOM/Canvas.
-> Chưa viết code test; đây là kế hoạch.
+> Đối chiếu với test hiện có trong `tests/logic.test.ts`, `tests/input.test.ts` và `tests/invariants.test.ts`.
+> Đây là danh mục kiểm thử và ghi chú phạm vi; trạng thái pass/fail phải lấy từ lần chạy `npm run check` gần nhất.
 
----
+## 1. `createRng(seed)` — `tests/logic.test.ts`
 
-## 1. `createRng(seed)`
+| ID  | Trường hợp           | Mong đợi                      | Test |
+| --- | -------------------- | ----------------------------- | ---- |
+| C1  | Seed 42; gọi 3 lần   | Hàm trả số trong `[0, 1)`     | Có   |
+| C2  | Hai RNG cùng seed 42 | Hai chuỗi 5 số giống nhau     | Có   |
+| C3  | Seed 0               | Không throw; số trả về hợp lệ | Có   |
+| C4  | Seed `0xffffffff`    | Không throw; số trả về hợp lệ | Có   |
+| C5  | Seed 42 và 43        | Hai chuỗi 5 số khác nhau      | Có   |
 
-| #   | Loại        | Input                                         | Expected                                  | Luật/EC |
-| --- | ----------- | --------------------------------------------- | ----------------------------------------- | ------- |
-| C1  | Happy path  | `seed = 42`                                   | Trả về hàm; gọi 3 lần cho 3 số `∈ [0, 1)` | E5      |
-| C2  | Idempotency | Tạo 2 RNG cùng `seed = 42`, gọi mỗi cái 5 lần | Hai dãy số giống hệt nhau                 | E5      |
-| C3  | Biên seed   | `seed = 0`                                    | Không throw; trả về chuỗi hợp lệ          | E5      |
-| C4  | Biên seed   | `seed = 2^32 - 1` (max uint32)                | Không throw; trả về chuỗi hợp lệ          | E5      |
-| C5  | Đường lỗi   | Hai seed khác nhau (`42` vs `43`)             | Dãy số khác nhau (xác suất cao)           | E5      |
+## 2. `initialState(seed)` — `tests/logic.test.ts`
 
----
+| ID  | Trường hợp              | Mong đợi                                        | Test |
+| --- | ----------------------- | ----------------------------------------------- | ---- |
+| I1  | State ban đầu           | `ready`, score/t/accumulator bằng 0             | Có   |
+| I2  | Bird ban đầu            | `y = 280`, `vy = 0`                             | Có   |
+| I3  | Pipes ban đầu           | Mảng rỗng                                       | Có   |
+| I4  | Gọi hai lần với seed 42 | Các trường state và số RNG tiếp theo giống nhau | Có   |
+| I5  | RNG trong state         | Là hàm trả số trong `[0, 1)`                    | Có   |
 
-## 2. `initialState(seed)`
+## 3. `update` — R1: physics và status — `tests/logic.test.ts`
 
-| #   | Loại        | Input                        | Expected                                                    | Luật/EC |
-| --- | ----------- | ---------------------------- | ----------------------------------------------------------- | ------- |
-| I1  | Happy path  | `seed = 1`                   | `status = 'ready'`, `score = 0`, `t = 0`, `accumulator = 0` | —       |
-| I2  | Happy path  | `seed = 1`                   | `bird.y = 280` (birdStartY), `bird.vy = 0`                  | —       |
-| I3  | Happy path  | `seed = 1`                   | `pipes = []` (chưa spawn khi `ready`)                       | Sec 7   |
-| I4  | Idempotency | `initialState(42)` gọi 2 lần | Hai state giống hệt nhau                                    | E5      |
-| I5  | Happy path  | `seed = 42`                  | `state.rng` là hàm, gọi 1 lần trả số `∈ [0, 1)`             | E5, R5  |
+| ID  | Trường hợp                  | Mong đợi                                 | Test |
+| --- | --------------------------- | ---------------------------------------- | ---- |
+| P1  | `y=300`, `vy=0`, dt=`1/60`  | `vy=30`, `y=300.5` (semi-implicit Euler) | Có   |
+| P2  | `y=300`, `vy=30`, dt=`1/60` | `vy=60`, `y=301`                         | Có   |
+| P3  | dt=0                        | Không chạy bước physics; y/vy không đổi  | Có   |
+| P4  | dt=`1/60`                   | Chạy đúng một bước; accumulator bằng 0   | Có   |
+| P5  | dt=0.05                     | Chạy 3 bước; accumulator gần 0           | Có   |
+| P6  | dt=1.0                      | Clamp về tối đa 0.05; tối đa 3 bước      | Có   |
+| P7  | dt=0.049                    | Chạy 2 bước; giữ phần dt dư              | Có   |
+| P8  | Status `ready`              | Physics và thời gian không tiến          | Có   |
+| P9  | Status `over`               | State không đổi theo update              | Có   |
+| P10 | `over`, input/dt bất kỳ     | Kết quả deep-equal state đầu vào         | Có   |
 
----
+## 4. `update` — R2: flap — `tests/logic.test.ts`
 
-## 3. `update(state, input, dtFrame)` — R1: Physics
+| ID  | Trường hợp                    | Mong đợi                          | Test                                |
+| --- | ----------------------------- | --------------------------------- | ----------------------------------- |
+| F1  | Đang chơi, `vy=100`, flap     | `vy` được đặt thành -420          | Có                                  |
+| F2  | Đang chơi, `vy=-420`, flap    | `vy=-420`                         | Có                                  |
+| F3  | Đang chơi, `vy=-999`, flap    | Ghi đè thành -420, không cộng dồn | Có                                  |
+| F4  | `ready`, flap                 | Không áp dụng vận tốc flap        | Có                                  |
+| F5  | `over`, flap                  | Không áp dụng vận tốc flap        | Có                                  |
+| F6  | Logic nhận `flap=true` đã gộp | Xử lý một flap                    | Có; kiểm tra caller riêng ở nhóm E4 |
 
-| #   | Loại         | State                    | Input   | dtFrame              | Expected                                                  | Luật/EC |
-| --- | ------------ | ------------------------ | ------- | -------------------- | --------------------------------------------------------- | ------- |
-| P1  | Happy path   | `{y:300, vy:0}` playing  | no flap | `1/60`               | `vy = 30`, `y = 300.5` — semi-implicit: y dùng vy_new=30  | R1      |
-| P2  | Happy path   | `{y:300, vy:30}` playing | no flap | `1/60`               | `vy = 60`, `y = 301` — semi-implicit: y_new=300+60×(1/60) | R1      |
-| P3  | Biên dt      | any playing              | no flap | `0`                  | `vy`, `y` không đổi (0 bước physics)                      | R1      |
-| P4  | Biên dt      | any playing              | no flap | `1/60` chính xác     | Đúng 1 bước physics chạy                                  | R1      |
-| P5  | Biên dt      | any playing              | no flap | `0.05` (3 bước)      | Đúng 3 bước physics, accumulator ≈ 0                      | R1, E2  |
-| P6  | Biên dt      | any playing              | no flap | `1.0` (tab quay lại) | Clamp xuống `0.05`, chỉ 3 bước tối đa                     | E2      |
-| P7  | Biên dt      | any playing              | no flap | `0.049`              | 2 bước (floor(0.049 / (1/60)) = 2)                        | R1      |
-| P8  | Status guard | any `ready`              | no flap | `1/60`               | `bird.y`, `vy`, `t` không đổi                             | Sec 3   |
-| P9  | Status guard | any `over`               | no flap | `1/60`               | Toàn bộ state không đổi                                   | Sec 3   |
-| P10 | Idempotency  | any `over`               | bất kỳ  | bất kỳ               | State trả về `===` state đầu vào (hoặc deep-equal)        | Sec 3   |
+## 5. `update` — R3: collision — `tests/logic.test.ts`
 
----
+| ID  | Trường hợp                 | Mong đợi                                      | Test |
+| --- | -------------------------- | --------------------------------------------- | ---- |
+| D1  | Chạm/vượt trần             | `over`, y kẹp về 12                           | Có   |
+| D2  | Nằm trong ngưỡng trần      | Tiếp tục `playing`                            | Có   |
+| D3  | Chạm/vượt đất              | `over`, y kẹp về 588                          | Có   |
+| D4  | Nằm trong ngưỡng đất       | Tiếp tục `playing`                            | Có   |
+| D5  | Va chạm ống trên           | `over`                                        | Có   |
+| D6  | Va chạm ống dưới           | `over`                                        | Có   |
+| D7  | Chim nằm trong khe an toàn | Tiếp tục `playing`                            | Có   |
+| D8  | Bird rơi nhanh, dt=0.05    | Va chạm đất được phát hiện trong các bước nhỏ | Có   |
+| D9  | Flap gần trần              | Va chạm trần được phát hiện và y kẹp về 12    | Có   |
 
-## 4. `update` — R2: Flap
+## 6. `update` — R4: scoring — `tests/logic.test.ts`
 
-| #   | Loại         | State                              | Input        | Expected                                 | Luật/EC |
-| --- | ------------ | ---------------------------------- | ------------ | ---------------------------------------- | ------- |
-| F1  | Happy path   | `{vy: 100}` playing                | `flap: true` | `vy = -420` (flapVelocity, ghi đè)       | R2      |
-| F2  | Happy path   | `{vy: -420}` playing               | `flap: true` | `vy = -420` (idempotent nếu đang ở đỉnh) | R2      |
-| F3  | Biên         | `{vy: -999}` playing               | `flap: true` | `vy = -420` (không cộng, chỉ ghi đè)     | R2      |
-| F4  | Status guard | any `ready`                        | `flap: true` | `vy` không đổi, status không đổi         | Sec 3   |
-| F5  | Status guard | any `over`                         | `flap: true` | `vy` không đổi                           | Sec 3   |
-| F6  | E4 – dedup   | `flap: true` (đã dedup bởi caller) | nhiều bấm    | Chỉ 1 flap được xử lý                    | E4      |
+| ID  | Trường hợp                                   | Mong đợi                       | Test |
+| --- | -------------------------------------------- | ------------------------------ | ---- |
+| S1  | Cạnh phải ống đi qua x=80 trong bước physics | Tăng 1 điểm, đánh dấu `scored` | Có   |
+| S2  | Pipe đã `scored`                             | Không cộng lại                 | Có   |
+| S3  | Cạnh phải còn trước x=80                     | Không cộng điểm                | Có   |
+| S4  | Cạnh phải đúng bằng x=80                     | Chưa cộng điểm (chưa vượt qua) | Có   |
+| S4b | Cạnh phải nhỏ hơn x=80                       | Cộng điểm một lần              | Có   |
+| S5  | Nhiều pipe đã qua bird                       | Mỗi pipe được tính một lần     | Có   |
+| S6  | Nhiều lần update                             | Score không giảm               | Có   |
 
----
+## 7. Pipe lifecycle — `tests/logic.test.ts`
 
-## 5. `update` — R3: Collision & Death
+| ID  | Trường hợp                            | Mong đợi                                                       | Test |
+| --- | ------------------------------------- | -------------------------------------------------------------- | ---- |
+| PL1 | Chơi, chưa có pipe                    | Pipe đầu được tạo tại x=400 rồi dịch chuyển theo bước hiện tại | Có   |
+| PL2 | Pipe cuối ở x=180                     | Tạo pipe mới tại x=400 rồi dịch chuyển theo bước hiện tại      | Có   |
+| PL3 | Pipe đã thoát bên trái (`x + 52 < 0`) | Bị loại khỏi mảng                                              | Có   |
+| PL4 | Pipes được spawn                      | `gapY` thuộc `[80, 520]`                                       | Có   |
+| PL5 | Status `over`                         | Không spawn hoặc di chuyển pipe                                | Có   |
 
-| #   | Loại               | Điều kiện                              | Expected                                                | Cause       | Luật/EC |
-| --- | ------------------ | -------------------------------------- | ------------------------------------------------------- | ----------- | ------- |
-| D1  | Biên trần          | `bird.y - 12 < 0` sau bước physics     | `status = 'over'`, `bird.y = 12`                        | `'ceiling'` | R3, E1  |
-| D2  | Biên trần (trong)  | `bird.y = 12 + ε` sau bước             | `status` giữ `'playing'`                                | —           | R3, E1  |
-| D3  | Biên đất           | `bird.y + 12 > 600` sau bước physics   | `status = 'over'`, `bird.y = 588`                       | `'floor'`   | R3, E6  |
-| D4  | Biên đất (trong)   | `bird.y = 588 - ε` sau bước            | `status` giữ `'playing'`                                | —           | R3, E6  |
-| D5  | Va chạm ống trên   | bird circle giao với ống phía trên     | `status = 'over'`                                       | `'pipe'`    | R3      |
-| D6  | Va chạm ống dưới   | bird circle giao với ống phía dưới     | `status = 'over'`                                       | `'pipe'`    | R3      |
-| D7  | Bay qua gap đúng   | bird.y ∈ [gapY-80+12, gapY+80-12]      | `status` giữ `'playing'`                                | —           | R3      |
-| D8  | Anti-tunneling     | `dtFrame = 0.05`, bird rất nhanh       | Collision phát hiện trong bước physics, không xuyên qua | E7          |
-| D9  | Collision sau flap | flap gần trần → `vy = -420` → y vượt 0 | Detect `ceiling`, không cho y < 0                       | R3, E1      |
+## 8. Determinism và E-series — `tests/logic.test.ts`
 
----
+| ID            | Trường hợp                      | Mong đợi                                                  | Test |
+| ------------- | ------------------------------- | --------------------------------------------------------- | ---- |
+| DET1 / E3     | Mô phỏng 3 giây ở 60Hz và 144Hz | Bird y và score tương đương                               | Có   |
+| DET2 / E5     | Cùng seed và chuỗi input        | State mô phỏng cuối giống nhau                            | Có   |
+| DET3 / E2, E5 | dt=1.0 so với 60 bước thường    | Kết quả khác nhau do clamp; ghi nhận ngoại lệ determinism | Có   |
 
-## 6. `update` — R4: Scoring
+## 9. Input layer — E4 — `tests/input.test.ts`
 
-| #   | Loại             | Điều kiện                             | Expected                              | Luật/EC   |
-| --- | ---------------- | ------------------------------------- | ------------------------------------- | --------- |
-| S1  | Happy path       | `birdX (80)` vừa vượt `pipe.x + 52`   | `score += 1`, `pipe.scored = true`    | R4        |
-| S2  | Không cộng 2 lần | Pipe đã có `scored = true`            | `score` không tăng thêm               | R4, Sec 8 |
-| S3  | Biên trigger     | `birdX = pipe.x + 52 - 1` (chưa vượt) | `score` không tăng                    | R4        |
-| S4  | Biên trigger     | `birdX = pipe.x + 52` (đúng boundary) | `score += 1`                          | R4        |
-| S5  | Nhiều pipe       | 3 pipe, bird đi qua tất cả            | `score = 3`, mỗi pipe `scored = true` | R4        |
-| S6  | Invariant        | Bất kỳ sequence update nào            | `score` không bao giờ giảm            | Sec 9     |
+| ID   | Trường hợp                                | Mong đợi                                                   | Test |
+| ---- | ----------------------------------------- | ---------------------------------------------------------- | ---- |
+| E4.1 | Space, pointer và touch trước lần consume | Chỉ một cờ flap được tiêu thụ; consume tiếp theo trả false | Có   |
+| E4.2 | Phím khác Space                           | Không kích hoạt flap, không gọi `preventDefault`           | Có   |
 
----
+## 10. Invariants — `tests/invariants.test.ts`
 
-## 7. Pipe lifecycle
+| ID   | Trường hợp                        | Mong đợi                                             | Test               |
+| ---- | --------------------------------- | ---------------------------------------------------- | ------------------ |
+| INV1 | Chuỗi frame/input sinh ngẫu nhiên | Score không giảm; state mới reset score về 0         | Có, property-based |
+| INV2 | Chuỗi frame/input sinh ngẫu nhiên | Mọi `gapY` nằm trong `[80, 520]`                     | Có, property-based |
+| INV3 | Chuỗi frame/input sinh ngẫu nhiên | Không giữ pipe đã thoát hoàn toàn khỏi trái màn hình | Có, property-based |
 
-| #   | Loại                 | Điều kiện                    | Expected                      | Luật/EC |
-| --- | -------------------- | ---------------------------- | ----------------------------- | ------- |
-| PL1 | Spawn đầu            | Transition `ready → playing` | Pipe đầu spawn tại `x = 400`  | Sec 7   |
-| PL2 | Spawn tiếp           | Pipe cuối đạt `x = 180`      | Pipe mới spawn tại `x = 400`  | Sec 7   |
-| PL3 | Xoá pipe             | `pipe.x + 52 < 0`            | Pipe bị loại khỏi mảng        | Sec 7   |
-| PL4 | gapY bounds          | Bất kỳ pipe nào              | `80 ≤ gapY ≤ 520` (invariant) | Sec 9   |
-| PL5 | Không spawn khi over | `status = 'over'`            | Không có pipe mới             | Sec 3   |
+## 11. Architecture boundary — R5 — `tests/logic.test.ts`
 
----
+| ID  | Trường hợp                           | Mong đợi                                                      | Test     |
+| --- | ------------------------------------ | ------------------------------------------------------------- | -------- |
+| A1  | Import logic trong Node.js không DOM | Các hàm public import được                                    | Có       |
+| A2  | Quét `src/logic/index.ts`            | Không có tham chiếu DOM/Canvas/window                         | Có       |
+| A3  | Quét import trong logic              | Không import từ `src/render`                                  | Có       |
+| A4  | Update state thuần                   | Trả state mới, không sửa bird trong input state               | Có       |
+| A4b | Hai update từ cùng state và RNG      | Gap pipe và RNG tiếp theo giống nhau; input RNG không bị tiến | Có       |
+| A5  | Logic game không nằm trong render    | Review thủ công; hiện không có test tự động                   | Thủ công |
 
-## 8. Determinism & E-series tổng hợp
+## 12. Tổng quan và khoảng trống
 
-| #    | Loại           | Kịch bản                                                              | Expected                                 | Luật/EC |
-| ---- | -------------- | --------------------------------------------------------------------- | ---------------------------------------- | ------- |
-| DET1 | E3 – framerate | Chạy 3 s ở 60Hz (180 frame × dt=1/60) vs 144Hz (432 frame × dt=1/144) | `bird.y`, `score` giống nhau sau 3 s     | E3      |
-| DET2 | E5 – replay    | Cùng seed + cùng chuỗi `(input, dtFrame)` chạy 2 lần                  | State cuối deep-equal                    | E5      |
-| DET3 | E2 + E5        | Chèn `dtFrame = 1.0` vào chuỗi                                        | E5 **không** đảm bảo (documented caveat) | E2, E5  |
-
----
-
-## 9. Architecture boundary — R5
-
-> Kiểm tra ranh giới `src/logic` ↔ `src/render` ↔ `src/index.ts` (ADR-002).
-> Các test này chạy ở cấp độ static-analysis / import-check, không cần browser.
-
-| #   | Loại       | Kịch bản                                                                                         | Expected                                     | Luật/EC |
-| --- | ---------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------- | ------- |
-| A1  | Happy path | Import toàn bộ `src/logic/index.ts` trong Node.js thuần (không jsdom)                            | Không throw; các hàm export được             | R5      |
-| A2  | Negative   | `src/logic/index.ts` không được chứa `import ... from 'document'\|'window'\|'HTMLCanvasElement'` | Lint rule / grep assert 0 match              | R5      |
-| A3  | Negative   | `src/logic/index.ts` không được `import` bất kỳ file nào trong `src/render/`                     | Dependency-check assert 0 match              | R5      |
-| A4  | Happy path | Hàm `update()` nhận `GameState` thuần, trả `GameState` thuần — không side-effect DOM             | Vitest chạy OK trong Node.js                 | R5      |
-| A5  | Negative   | `src/render/` không được chứa game logic (physics, collision, scoring)                           | Code-review checklist; không có assertion số | R5      |
-
----
-
-## Tổng quan độ phủ
-
-| Nhóm                  | Happy     | Biên  | Lỗi/Negative | Idempotency | Tổng   |
-| --------------------- | --------- | ----- | ------------ | ----------- | ------ |
-| `createRng`           | C1        | C3–C4 | C5           | C2          | 5      |
-| `initialState`        | I1–I3, I5 | —     | —            | I4          | 5      |
-| `update` R1 physics   | P1–P2     | P3–P7 | —            | P8–P10      | 10     |
-| `update` R2 flap      | F1–F3     | —     | F4–F5        | F6          | 6      |
-| `update` R3 collision | D7        | D1–D4 | D5–D6        | D8–D9       | 9      |
-| `update` R4 scoring   | S1        | S3–S4 | S2           | S5–S6       | 6      |
-| Pipe lifecycle        | PL1–PL2   | PL4   | —            | PL3, PL5    | 5      |
-| Determinism/E-series  | DET2      | DET1  | DET3         | —           | 3      |
-| Architecture R5       | A1, A4    | —     | A2–A3, A5    | —           | 5      |
-| **Tổng**              |           |       |              |             | **54** |
-
----
-
-## Ghi chú thay đổi
-
-| Phiên bản      | Thay đổi                                                                                                                                                             |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v1 (ban đầu)   | 48 test case (C, I, P, F, D, S, PL, DET)                                                                                                                             |
-| v2 (SPEC v0.2) | **P1**: fix y=300→**300.5**; **P2**: fix y=300.5→**301** (semi-implicit Euler theo R1); thêm **I5** (rng field); thêm **A1–A5** (R5 architecture boundary). Tổng: 54 |
+- Có 55 test case trong `tests/logic.test.ts`, 2 test trong `tests/input.test.ts`, và 3 property-based test trong `tests/invariants.test.ts` (tổng 60 test case).
+- E1–E5 có test tương ứng; E6 được bao phủ bởi D3; E7 được bao phủ bởi D8.
+- Các nhóm trên không bao gồm đo FPS một phút, kiểm tra game chạy liên tục một phút, kiểm thử trực quan trên browser, hoặc benchmark hiệu năng.
+- A5 là review thủ công, không phải test tự động.
+- `npm run check` mới là nơi xác nhận kết quả thực thi; tài liệu này không ghi trước trạng thái pass/fail.

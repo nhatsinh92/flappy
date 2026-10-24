@@ -3,6 +3,7 @@
 
 import { initialState, update, type State } from "./logic/index";
 import { draw } from "./render/draw";
+import { createInputManager } from "./input";
 
 const LOGIC_WIDTH = 400;
 const LOGIC_HEIGHT = 600;
@@ -74,29 +75,20 @@ window.addEventListener("resize", handleResize);
 handleResize();
 
 // 3. Quản lý Input (Deduplicate trong frame: E4)
-let flapQueued = false;
-
-function triggerFlap(): void {
-  flapQueued = true;
-}
+const inputManager = createInputManager();
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
-  if (e.code === "Space") {
-    e.preventDefault();
-    triggerFlap();
-  }
+  inputManager.handleKeyDown(e);
 });
 
 canvas.addEventListener("pointerdown", (e: PointerEvent) => {
-  e.preventDefault();
-  triggerFlap();
+  inputManager.handlePointerDown(e);
 });
 
 window.addEventListener(
   "touchstart",
   (e: TouchEvent) => {
-    e.preventDefault();
-    triggerFlap();
+    inputManager.handleTouchStart(e);
   },
   { passive: false },
 );
@@ -133,8 +125,7 @@ function frame(timestamp: number): void {
   const dtFrame = Math.min(Math.max(rawDt, 0), MAX_FRAME_DT);
 
   // Lấy input đã gom trong frame (E4) và reset flag cho frame kế
-  const flap = flapQueued;
-  flapQueued = false;
+  const flap = inputManager.consumeFlap();
 
   // Xử lý chuyển trạng thái theo spec (bấm để bắt đầu / chơi lại)
   if (state.status === "ready") {

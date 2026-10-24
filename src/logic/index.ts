@@ -43,12 +43,24 @@ export const MAX_GAP_Y = 520;
 /** Tạo PRNG mulberry32 từ seed số nguyên (deterministic, E5). */
 export function createRng(seed: number): () => number {
   let s = seed >>> 0;
-  return function (): number {
+  const fn = function (): number {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  (fn as unknown as { clone: () => () => number }).clone = () => createRng(s);
+  return fn;
+}
+
+function cloneRng(rng: () => number): () => number {
+  if (
+    "clone" in rng &&
+    typeof (rng as { clone: unknown }).clone === "function"
+  ) {
+    return (rng as { clone: () => () => number }).clone();
+  }
+  return rng;
 }
 
 /** Trả về state ban đầu (status = 'ready'). */
@@ -140,7 +152,7 @@ function checkBoundaryCollision(bird: { y: number; vy: number }): Status {
 function updateScoring(pipes: Pipe[]): number {
   let scoreGained = 0;
   for (const pipe of pipes) {
-    if (!pipe.scored && pipe.x + PIPE_WIDTH <= BIRD_X) {
+    if (!pipe.scored && pipe.x + PIPE_WIDTH < BIRD_X) {
       pipe.scored = true;
       scoreGained += 1;
     }
@@ -194,16 +206,17 @@ export function update<T extends State>(
   if (status === "over" || checkPipeCollision(bird.y, pipes)) {
     return { ...state, bird, pipes, score, status: "over" as Status };
   }
+  const rng = cloneRng(state.rng);
   let accumulator =
     state.accumulator + Math.min(Math.max(dtFrame, 0), MAX_FRAME_DT);
   let t = state.t;
   while (accumulator >= PHYSICS_STEP && status === "playing") {
     accumulator -= PHYSICS_STEP;
     t += PHYSICS_STEP;
-    const stepResult = stepSimulation(bird, pipes, state.rng);
+    const stepResult = stepSimulation(bird, pipes, rng);
     status = stepResult.status;
     score += stepResult.scoreGained;
     pipes = pipes.filter((p) => p.x + PIPE_WIDTH >= 0);
   }
-  return { ...state, bird, pipes, score, status, t, accumulator };
+  return { ...state, bird, pipes, score, status, t, accumulator, rng };
 }

@@ -394,9 +394,18 @@ describe("Test Matrix – Flappy Bird Logic", () => {
       expect(next.pipes[0].scored).toBe(false);
     });
 
-    it("S4: Biên trigger - birdX == pipe.x + 52 (exact boundary at x = 28) increments score", () => {
-      // 28 + 52 = 80 == birdX
+    it("S4: Biên trigger - birdX == pipe.x + 52 (exact boundary at x = 28, not yet crossed) does not increment score", () => {
+      // 28 + 52 = 80 == birdX (chưa vượt qua cạnh phải)
       const pipe: Pipe = { x: 28, gapY: 300, scored: false };
+      const state = createBaseState({ pipes: [pipe], score: 0 });
+      const next = update(state, noFlap, 0);
+      expect(next.score).toBe(0);
+      expect(next.pipes[0].scored).toBe(false);
+    });
+
+    it("S4b: Biên trigger - birdX > pipe.x + 52 (pipe.x = 27.9, đã vượt qua cạnh phải) increments score", () => {
+      // 27.9 + 52 = 79.9 < 80 == birdX (đã vượt qua)
+      const pipe: Pipe = { x: 27.9, gapY: 300, scored: false };
       const state = createBaseState({ pipes: [pipe], score: 0 });
       const next = update(state, noFlap, 0);
       expect(next.score).toBe(1);
@@ -407,7 +416,7 @@ describe("Test Matrix – Flappy Bird Logic", () => {
       const pipes: Pipe[] = [
         { x: 10, gapY: 300, scored: false },
         { x: 20, gapY: 300, scored: false },
-        { x: 28, gapY: 300, scored: false },
+        { x: 27, gapY: 300, scored: false },
       ];
       const state = createBaseState({ pipes, score: 0 });
       const next = update(state, noFlap, 0);
@@ -598,6 +607,17 @@ describe("Test Matrix – Flappy Bird Logic", () => {
       expect(next).not.toBeNull();
       // Verifies update does not mutate input state directly
       expect(state.bird.y).toBe(300);
+    });
+
+    it("A4b: Pure function - update() does not mutate state.rng of the input state", () => {
+      const state = createBaseState({ pipes: [], rng: createRng(42) });
+      const next1 = update(state, { flap: false }, 1 / 60);
+      const next2 = update(state, { flap: false }, 1 / 60);
+
+      // Cùng state đầu vào, hai lần update độc lập phải cho ra cùng gapY cho pipe mới
+      expect(next1.pipes[0].gapY).toBe(next2.pipes[0].gapY);
+      // Hai state mới độc lập phải cho ra cùng giá trị rng tiếp theo
+      expect(next1.rng()).toBe(next2.rng());
     });
   });
 });
