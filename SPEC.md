@@ -84,14 +84,14 @@ interface GameState {
           pipe.x -= currentPipeSpeed * PHYSICS_STEP   // (3) ống di chuyển; tốc độ theo R6
       accumulator -= PHYSICS_STEP
   ```
-  `currentPipeSpeed` được tính từ `score` tại **đầu** mỗi bước physics. Va chạm (R3) và tính điểm (R4) vẫn kiểm tra sau mỗi bước như cũ; điểm vừa được cộng chỉ ảnh hưởng tốc độ từ bước kế tiếp.
+  `currentPipeSpeed` được tính từ `score` tại **đầu** mỗi bước physics. Va chạm (R3) và tính điểm (R4) đều được kiểm tra sau mỗi bước physics, bên trong vòng lặp accumulator (không phải một lần mỗi frame); điểm vừa được cộng chỉ ảnh hưởng tốc độ từ bước kế tiếp.
 - **R2 (Flap):** Khi nhận input flap hợp lệ (status = `playing`), đặt `vy = flapVelocity`. Không có terminal velocity.
 - **R3 (Collision → over):** Dùng circle-vs-AABB để kiểm tra va chạm giữa bird (circle, bán kính `birdRadius`) và ống (AABB, width `pipeWidth`). Game over khi:
   - `y - birdRadius < ceilingY` (chạm trần), hoặc
   - `y + birdRadius > floorY` (chạm đất), hoặc
   - Bird circle giao với AABB của ống trên hoặc ống dưới.
   - Kiểm tra xảy ra sau **mỗi bước physics** bên trong vòng lặp accumulator.
-- **R4 (Điểm):** Cộng 1 điểm đúng 1 lần khi **tâm bird (x = 80)** vượt qua **cạnh phải của ống** (`pipe.x + pipeWidth`). Đánh dấu bằng flag `scored: boolean` trong state pipe.
+- **R4 (Điểm):** Cộng 1 điểm đúng 1 lần khi **tâm bird (x = 80)** vượt qua **cạnh phải của ống** (`pipe.x + pipeWidth`). Đánh dấu bằng flag `scored: boolean` trong state pipe. Việc kiểm tra và cộng điểm diễn ra sau mỗi bước physics (xem R1), để thời điểm cộng điểm không phụ thuộc framerate (E3).
 - **R5 (Architecture – phân tầng):** Code được tổ chức thành 3 layer; vi phạm ranh giới là lỗi. Quyết định: ADR-002.
   ```
   src/

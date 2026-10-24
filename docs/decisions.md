@@ -97,3 +97,29 @@ src/
 - [ ] Test R1–R4 chạy trong Node.js (không cần browser/jsdom).
 - [ ] Đo FPS: dùng `requestAnimationFrame` timestamp, assert ≥ 60 FPS trên laptop thường trong 1 phút.
 - [ ] Kiểm tra bundle size: `dist/` không có Phaser hoặc game engine nào.
+
+---
+
+## ADR-003 – D3: Tính điểm theo bước physics
+
+**Ngày:** 2026-10-24
+**Trạng thái:** Đã chốt
+
+### Bối cảnh
+
+R6 làm tốc độ ống phụ thuộc vào score. Nếu tính điểm một lần mỗi frame, thời điểm đạt ngưỡng tăng tốc có thể phụ thuộc vào framerate, trái với yêu cầu E3.
+
+### Phương án
+
+| Phương án | Cách tính điểm | Tác động |
+| --------- | -------------- | -------- |
+| A         | Sau mỗi bước physics | Thời điểm thay đổi score và tốc độ ống nhất quán giữa các framerate |
+| B         | Một lần mỗi frame | Thời điểm thay đổi score và tốc độ ống có thể phụ thuộc vào framerate |
+
+### Quyết định
+
+**Chọn phương án A:** tính điểm sau mỗi bước physics. Tốc độ ống được xác định từ score ở đầu bước; điểm vừa cộng chỉ ảnh hưởng từ bước physics kế tiếp.
+
+### Cách kiểm chứng
+
+- [ ] Test E8: đưa một frame có nhiều bước physics vào accumulator và so kết quả với việc chạy cùng số bước riêng lẻ; state, score và vị trí ống phải giống nhau.
