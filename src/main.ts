@@ -3,10 +3,12 @@
 
 import {
   currentPipeSpeed,
+  deathCause,
   initialState,
   update,
   type State,
 } from "./logic/index";
+import { createDeathLogger, type LogStorage } from "./deathLog";
 import { FLAGS } from "./flags";
 import { draw } from "./render/draw";
 import { createInputManager } from "./input";
@@ -104,17 +106,22 @@ let state: State = initialState(getSeed());
 let lastTimestamp: number | null = null;
 const flagOptions = { difficultyRamp: FLAGS.difficultyRamp };
 
+// Log sự kiện thua (R7): localStorage có thể không dùng được (E12) nên truy cập trong try/catch.
+function getLogStorage(): LogStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+const deathLogger = createDeathLogger(getLogStorage());
+
 function logDeathIfNeeded(prevState: State, nextState: State): void {
   if (prevState.status === "playing" && nextState.status === "over") {
-    let cause: "floor" | "ceiling" | "pipe" = "pipe";
-    if (nextState.bird.y <= 12) {
-      cause = "ceiling";
-    } else if (nextState.bird.y >= 588) {
-      cause = "floor";
-    }
-    console.log({
+    deathLogger.record({
       type: "death",
-      cause,
+      cause: deathCause(nextState),
       score: nextState.score,
       t: nextState.t,
       pipeSpeed: currentPipeSpeed(nextState.score, FLAGS.difficultyRamp),
@@ -122,6 +129,34 @@ function logDeathIfNeeded(prevState: State, nextState: State): void {
     });
   }
 }
+
+// Nút "Export log": file được tạo ở client bằng Blob, không gọi mạng (R7).
+function createExportButton(): void {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Export log";
+  button.tabIndex = -1; // phím cách là flap, không để nút nhận phím
+  button.style.position = "fixed";
+  button.style.right = "8px";
+  button.style.bottom = "8px";
+  // Chạm vào nút không được tính là flap (touchstart của window gọi preventDefault)
+  button.addEventListener("touchstart", (e) => e.stopPropagation());
+  button.addEventListener("click", () => {
+    const blob = new Blob([deathLogger.exportText()], {
+      type: "application/x-ndjson",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "flappy-log.jsonl";
+    link.click();
+    URL.revokeObjectURL(url);
+    button.blur();
+  });
+  document.body.appendChild(button);
+}
+
+createExportButton();
 
 function frame(timestamp: number): void {
   if (lastTimestamp === null) {
@@ -141,7 +176,9 @@ function frame(timestamp: number): void {
     if (flap) {
       // ready -> playing khi flap lần đầu (Section 3)
       state = { ...state, status: "playing" };
+      const prevState = state;
       state = update(state, { flap: true }, dtFrame, flagOptions);
+      logDeathIfNeeded(prevState, state);
     }
   } else if (state.status === "playing") {
     const prevState = state;
