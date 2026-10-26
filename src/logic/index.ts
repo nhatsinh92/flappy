@@ -1,6 +1,10 @@
 // src/logic/index.ts
 // Hàm thuần – KHÔNG import DOM/Canvas (AGENTS.md)
 
+import type { DeathCause } from "./log";
+
+export * from "./log";
+
 export type Status = "ready" | "playing" | "over";
 
 export interface Pipe {
@@ -105,7 +109,11 @@ function circleIntersectsAABB(
   return dx * dx + dy * dy < r * r;
 }
 
-function checkPipeCollision(birdY: number, pipes: readonly Pipe[]): boolean {
+/** Ống đang va chạm với bird: ống trên, ống dưới, hoặc không có. */
+function pipeCollisionSide(
+  birdY: number,
+  pipes: readonly Pipe[],
+): "top" | "bottom" | null {
   const halfGap = PIPE_GAP / 2;
   for (const pipe of pipes) {
     const minX = pipe.x;
@@ -121,7 +129,7 @@ function checkPipeCollision(birdY: number, pipes: readonly Pipe[]): boolean {
         pipe.gapY - halfGap,
       )
     ) {
-      return true;
+      return "top";
     }
     if (
       circleIntersectsAABB(
@@ -134,10 +142,28 @@ function checkPipeCollision(birdY: number, pipes: readonly Pipe[]): boolean {
         FLOOR_Y,
       )
     ) {
-      return true;
+      return "bottom";
     }
   }
-  return false;
+  return null;
+}
+
+function checkPipeCollision(birdY: number, pipes: readonly Pipe[]): boolean {
+  return pipeCollisionSide(birdY, pipes) !== null;
+}
+
+/**
+ * Nguyên nhân thua của một state `over` (SPEC R7). Ưu tiên trần, rồi đất, rồi ống.
+ * Dùng ≤ / ≥ vì E1 và E6 đặt y đúng biên khi chết.
+ */
+export function deathCause(state: State): DeathCause {
+  const y = state.bird.y;
+  if (y - BIRD_RADIUS <= CEILING_Y) return "ceiling";
+  if (y + BIRD_RADIUS >= FLOOR_Y) return "floor";
+  // State `over` hợp lệ luôn có một ống va chạm; nhánh dự phòng không ném lỗi.
+  return pipeCollisionSide(y, state.pipes) === "top"
+    ? "pipe_top"
+    : "pipe_bottom";
 }
 
 function spawnPipesIfNeeded(pipes: Pipe[], rng: () => number): void {

@@ -1,5 +1,7 @@
-# Flappy Bird – SPEC v0.4
+# Flappy Bird – SPEC v0.5
 
+> **Changelog v0.5**: Thêm luật ghi log sự kiện thua (R7): định dạng JSON Lines, lưu ở `localStorage`, tối đa 1000 dòng, có nút "Export log". Tách `cause` `pipe` thành `pipe_top` / `pipe_bottom` để phân tích được chết ở ống trên hay ống dưới. Thêm tham số `LOG_KEY`, `LOG_MAX_LINES`, E12–E15, cập nhật non-goals, negative examples, invariants, observability, test strategy, tiêu chí chấp nhận và Section 14. Không đổi hành vi game.
+>
 > **Changelog v0.4**: Thêm feature flag `difficultyRamp` (mặc định bật) để bật/tắt R6 mà không phải revert code. Thêm tham số `FLAGS.difficultyRamp`, E11, cập nhật R6, invariants, observability, test strategy và Section 14. Khi cờ bật, hành vi giống hệt v0.3.
 >
 > **Changelog v0.3**: Thêm luật tăng tốc ống (R6): khi `score ≥ 10`, tốc độ ống nhanh hơn 15% (160 → 184 px/s), áp dụng một lần. Làm rõ R1: ống di chuyển trong từng bước physics (trước đây chưa nêu). Thêm tham số `speedUpScore`, `speedUpFactor`, `currentPipeSpeed`; thêm ví dụ 2 ở Section 6; thêm E8–E10; cập nhật negative examples, invariants, observability, test strategy và tiêu chí chấp nhận.
@@ -11,6 +13,7 @@
 ## 1. Mục tiêu / Non-goals
 - Mục tiêu: game 1 nút bấm, chạy trên web, chơi được bằng chuột/phím cách/chạm.
 - Non-goals: không có multiplayer, không có tài khoản, không gọi mạng.
+- Log vận hành (R7) chỉ nằm trong `localStorage` của người chơi, không gửi đi đâu; người chơi tự xuất file nếu muốn chia sẻ.
 
 ---
 
@@ -72,6 +75,8 @@ interface GameState {
 | speedUpFactor | 1.15 | hệ số nhân tốc độ ống khi `score ≥ speedUpScore`; áp dụng **một lần** (R6) |
 | FLAGS.difficultyRamp | `true` | feature flag bật/tắt R6; `false` thì tốc độ ống luôn là `pipeSpeed` (160 px/s). Đọc ở tầng ngoài `src/logic`, truyền vào logic như tham số (Section 14) |
 | currentPipeSpeed | `pipeSpeed × speedUpFactor` nếu `difficultyRamp` bật và `score ≥ speedUpScore`, ngược lại `pipeSpeed` | giá trị dẫn xuất, không lưu trong state: 160 hoặc 184 px/s |
+| LOG_KEY | `flappy.log.v1` | khoá `localStorage` chứa log (R7); đổi định dạng log thì tăng version trong khoá |
+| LOG_MAX_LINES | 1000 | số dòng log tối đa; vượt thì bỏ dòng cũ nhất (R7, E14) |
 
 ---
 
@@ -116,6 +121,20 @@ interface GameState {
   - `pipeSpacing` giữ nguyên theo px (220 px), nên khoảng thời gian giữa hai ống giảm từ ≈ 1.375 s xuống ≈ 1.196 s. Điều kiện spawn (Section 7) dựa trên vị trí nên không đổi.
   - Không thêm field vào `GameState`: tốc độ luôn suy ra từ `score`. Vì `score` reset về 0 khi `over → ready`, ván mới tự quay về 160 px/s.
   - Chỉ ảnh hưởng tốc độ ống; gravity, flapVelocity, pipeGap, birdRadius không đổi.
+- **R7 (Log sự kiện thua):** Ghi lại mỗi lần thua để phân tích sau (vòng phản hồi). Chỉ quan sát, không ảnh hưởng game.
+  - **Khi nào ghi:** mỗi lần `status` chuyển `playing → over` ghi **đúng một** sự kiện `death` (Section 11). Không ghi khi status đã là `over`; không ghi sự kiện loại khác; ván bỏ dở (đóng tab, tải lại trang) không ghi gì (E15).
+  - **Xác định `cause`:** bằng hàm thuần `deathCause(state)` trong `src/logic`, từ state lúc chết, theo thứ tự ưu tiên:
+    1. `y − birdRadius ≤ ceilingY` → `ceiling`;
+    2. `y + birdRadius ≥ floorY` → `floor`;
+    3. còn lại là chạm ống: nếu `y < gapY` của ống đang va chạm → `pipe_top` (bird đụng ống trên), ngược lại `pipe_bottom` (đụng ống dưới).
+
+    Dùng `≤` / `≥` vì E1 và E6 đặt `y` đúng biên khi chết. Nếu bird chạm trần/đất đồng thời với ống thì ghi `ceiling` / `floor`.
+  - **Định dạng:** JSON Lines: mỗi sự kiện một dòng JSON, không chứa ký tự xuống dòng bên trong dòng.
+  - **Lưu trữ:** `localStorage`, khoá `LOG_KEY`, nội dung là các dòng nối bằng `\n`. Tối đa `LOG_MAX_LINES` dòng; khi thêm dòng mới vượt giới hạn thì bỏ dòng cũ nhất, giữ thứ tự thời gian (E14).
+  - **Đọc:** dòng không phải JSON hợp lệ, hoặc thiếu/sai kiểu trường bắt buộc (Section 11), bị bỏ qua; không ném lỗi và không xóa các dòng hợp lệ (E13). Dữ liệu trong `localStorage` là đầu vào không tin cậy.
+  - **Export:** nút "Export log" (phần tử DOM, nằm ngoài canvas) tải file `flappy-log.jsonl` gồm các dòng hợp lệ. File được tạo hoàn toàn ở client (Blob), không gọi mạng.
+  - **Không ảnh hưởng game:** lỗi `localStorage` (không có, đầy, bị chặn) bị nuốt, game tiếp tục chạy (E12). Ghi log không đổi `State` và không đổi kết quả mô phỏng, nên E5 (determinism) vẫn đúng.
+  - **Phân tầng (R5):** các hàm thuần `deathCause`, `serializeEvent`, `parseLog`, `appendCapped` nằm trong `src/logic`; đọc/ghi `localStorage`, tạo Blob và nút Export nằm ngoài `src/logic`.
 
 ---
 
@@ -161,6 +180,10 @@ interface GameState {
 - **E9:** Sau khi tăng tốc, tunneling vẫn không xảy ra: quãng ống dịch chuyển tối đa mỗi bước là 184/60 ≈ 3.07 px, nhỏ hơn `birdRadius` (12 px) và `pipeWidth` (52 px).
 - **E10:** Ván mới (`over → ready`): `score` về 0 nên `currentPipeSpeed` về 160 px/s; ống của ván mới không mang theo tốc độ của ván trước.
 - **E11:** Cờ `difficultyRamp` tắt: `currentPipeSpeed` luôn là 160 px/s, kể cả `score = 10` hoặc `score = 50`. Cờ bật: hành vi giống hệt E8–E10.
+- **E12:** `localStorage` không dùng được (không tồn tại, đầy quota, bị chặn ở chế độ riêng tư) → game vẫn chạy bình thường, không ném lỗi; sự kiện lần đó bị mất.
+- **E13:** Log có dòng hỏng (sửa tay, bị cắt cụt, thiếu trường) → các dòng hỏng bị bỏ qua khi đọc và khi export; các dòng hợp lệ vẫn đọc được.
+- **E14:** Log đã đủ `LOG_MAX_LINES` dòng và có sự kiện mới → còn đúng `LOG_MAX_LINES` dòng, là các dòng mới nhất, thứ tự thời gian giữ nguyên.
+- **E15:** Mỗi ván tạo tối đa một sự kiện `death`; ván bỏ dở không ghi gì; bấm restart không ghi sự kiện.
 
 ---
 
@@ -173,6 +196,9 @@ interface GameState {
 - Tăng tốc ống trước khi `score ≥ 10`; tăng tốc lũy tiến (nhiều hơn một lần); tốc độ ống giảm trong cùng một ván.
 - Lưu tốc độ ống thành state riêng (tốc độ phải suy ra từ `score`).
 - Đổi `pipeSpacing` hoặc tham số vật lý khác khi tăng tốc.
+- Ghi tên, định danh hoặc bất kỳ dữ liệu cá nhân nào của người chơi vào log; gửi log qua mạng.
+- Ghi log từ bên trong `src/logic`, hoặc để `localStorage` làm game ném lỗi hay dừng.
+- Ghi hai sự kiện cho một lần thua; ghi sự kiện không phải `death`; để việc ghi log làm đổi `State`.
 
 ---
 
@@ -184,22 +210,31 @@ interface GameState {
 - `currentPipeSpeed` chỉ nhận một trong hai giá trị: 160 px/s khi `score < 10` hoặc khi cờ `difficultyRamp` tắt, 184 px/s khi `score ≥ 10` và cờ bật.
 - Với cờ tắt, `currentPipeSpeed` luôn bằng 160 px/s.
 - Trong một ván, `currentPipeSpeed` không bao giờ giảm.
+- Log không bao giờ có quá `LOG_MAX_LINES` dòng; mỗi dòng hợp lệ đọc ra đủ các trường của Section 11 với đúng kiểu.
+- Với mọi sự kiện `death`: `cause` ∈ {`floor`, `ceiling`, `pipe_top`, `pipe_bottom`} và `pipeSpeed = currentPipeSpeed(score, difficultyRamp)`.
 
 ---
 
 ## 11. Observability
 
-Khi thua, ghi log:
+Khi thua (`playing → over`), ghi **đúng một** sự kiện vào log theo R7:
 ```ts
 {
   type:  'death',
-  cause: 'floor' | 'ceiling' | 'pipe',
+  cause: 'floor' | 'ceiling' | 'pipe_top' | 'pipe_bottom', // xác định bằng deathCause (R7)
   score: number,   // điểm tại thời điểm chết
   t:     number,   // thời gian game (giây) kể từ khi status='playing'
   pipeSpeed: number, // currentPipeSpeed lúc chết (160 hoặc 184), để phân biệt chết trước/sau tăng tốc
   difficultyRamp: boolean // giá trị cờ lúc chết, để phân biệt log của hai chế độ
 }
 ```
+
+Một dòng log (JSON Lines, một dòng cho một sự kiện, không có thêm trường):
+```
+{"type":"death","cause":"pipe_top","score":12,"t":18.4,"pipeSpeed":184,"difficultyRamp":true}
+```
+
+Cả năm trường đều bắt buộc. Khi đọc, `type` phải đúng `"death"`, `cause` thuộc bốn giá trị trên, `score` là số nguyên ≥ 0, `t` là số ≥ 0, `pipeSpeed` là số, `difficultyRamp` là boolean (R7, E13).
 
 ---
 
@@ -214,6 +249,11 @@ Khi thua, ghi log:
 - Test E10: sau `over → ready`, `currentPipeSpeed = 160`.
 - Property-based thêm: với seed và chuỗi input bất kỳ, `currentPipeSpeed` ∈ {160, 184} và không giảm trong một ván.
 - Test cờ (E11): `currentPipeSpeed(10, false) = 160`, `currentPipeSpeed(50, false) = 160`; `update` với `difficultyRamp: false` chạy tới `score ≥ 10` thì ống vẫn dịch 160/60 px mỗi bước. Cờ bật (hoặc không truyền) cho kết quả giống hệt các test R6 hiện có.
+- Test R7 `deathCause`: `y = 12` → `ceiling`; `y = 588` → `floor`; bird đụng ống trên (`y < gapY`) → `pipe_top`; đụng ống dưới (`y ≥ gapY`) → `pipe_bottom`; chạm trần đồng thời với ống → `ceiling` (ưu tiên).
+- Test R7 `serializeEvent` / `parseLog`: dòng không chứa `\n`; `parseLog(serializeEvent(e))` trả lại đúng `e`; dòng JSON hỏng, thiếu trường hoặc sai kiểu bị bỏ qua và dòng hợp lệ xung quanh vẫn đọc được (E13).
+- Test R7 `appendCapped` (E14): thêm dòng vào log đủ `LOG_MAX_LINES` thì còn đúng `LOG_MAX_LINES` dòng, mất dòng cũ nhất, giữ thứ tự.
+- Test R7 tầng lưu trữ (E12, E15): với `localStorage` giả ném lỗi, ghi log không ném lỗi; thua một lần ghi đúng một dòng; ván bỏ dở không ghi gì.
+- Property-based: với seed và chuỗi input bất kỳ, mỗi state `over` sinh từ mô phỏng có `deathCause` hợp lệ và `pipeSpeed` khớp `currentPipeSpeed(score, difficultyRamp)`; kết quả mô phỏng không đổi dù có ghi log hay không (E5).
 
 ---
 
@@ -224,6 +264,8 @@ Khi thua, ghi log:
 - 60 FPS trên laptop thường (đo bằng `requestAnimationFrame` timestamp).
 - Không có tunneling: bird không xuyên đất/ống ở bất kỳ framerate nào, kể cả ở tốc độ ống 184 px/s (E9).
 - Chơi tới ≥ 10 điểm: ống nhanh hơn rõ rệt ngay sau điểm thứ 10; ván mới trở lại tốc độ ban đầu.
+- Thua 3 lần rồi bấm "Export log": file `flappy-log.jsonl` có đúng 3 dòng, mỗi dòng là JSON hợp lệ đủ trường Section 11 (R7).
+- Chặn `localStorage` trong trình duyệt: game vẫn chơi được, không có lỗi trong console (E12).
 
 ---
 
@@ -259,5 +301,11 @@ Khi thua, ghi log:
 - Định nghĩa ở `src/flags.ts` (ngoài `src/logic`), đọc lúc build từ biến môi trường Vite `VITE_FLAG_DIFFICULTY_RAMP`: chỉ giá trị `"false"` mới tắt cờ, mọi trường hợp khác (không đặt, rỗng, `"true"`) là bật. Không thêm dependency.
 - Tầng `src/main.ts` đọc cờ và truyền vào `update` / `currentPipeSpeed` như tham số `difficultyRamp`. `src/logic` không import `src/flags.ts`.
 - Rollback: đặt `VITE_FLAG_DIFFICULTY_RAMP=false` rồi build và deploy lại, hoặc revert PR. Cách vận hành ghi ở `docs/decisions.md`.
+
+### Log sự kiện thua (v0.5)
+
+- Không cần ADR mới cho việc chọn `localStorage`: log chỉ nằm trên máy người chơi, khớp non-goal "không gọi mạng". Nếu sau này cần gom log về một nơi, đó là quyết định mới (cần ADR riêng và cập nhật non-goals).
+- Phân chia theo R5: `src/logic` chỉ chứa các hàm thuần (`deathCause`, `serializeEvent`, `parseLog`, `appendCapped`) để test được trong Node.js không cần DOM; truy cập `localStorage`, Blob và nút Export nằm ở tầng ngoài (`src/main.ts` hoặc module cùng cấp).
+- Sự kiện được ghi tại chỗ phát hiện chuyển `playing → over` ở vòng lặp game (hiện là `logDeathIfNeeded` trong `src/main.ts`), thay cho `console.log` hiện tại.
 
 > Xem chi tiết lý do và checklist kiểm chứng tại [`docs/decisions.md`](docs/decisions.md).
