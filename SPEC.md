@@ -1,5 +1,7 @@
-# Flappy Bird – SPEC v0.3
+# Flappy Bird – SPEC v0.4
 
+> **Changelog v0.4**: Thêm feature flag `difficultyRamp` (mặc định bật) để bật/tắt R6 mà không phải revert code. Thêm tham số `FLAGS.difficultyRamp`, E11, cập nhật R6, invariants, observability, test strategy và Section 14. Khi cờ bật, hành vi giống hệt v0.3.
+>
 > **Changelog v0.3**: Thêm luật tăng tốc ống (R6): khi `score ≥ 10`, tốc độ ống nhanh hơn 15% (160 → 184 px/s), áp dụng một lần. Làm rõ R1: ống di chuyển trong từng bước physics (trước đây chưa nêu). Thêm tham số `speedUpScore`, `speedUpFactor`, `currentPipeSpeed`; thêm ví dụ 2 ở Section 6; thêm E8–E10; cập nhật negative examples, invariants, observability, test strategy và tiêu chí chấp nhận.
 >
 > **Changelog v0.2**: Tích hợp quyết định kiến trúc từ ADR-001 (fixed timestep) và ADR-002 (Canvas thuần); thêm R5; thêm `accumulator` vào State; sửa lỗi ví dụ Section 6 (semi-implicit Euler); thêm Section 14 Architecture.
@@ -68,7 +70,8 @@ interface GameState {
 | firstPipeX | 400 px | x của ống đầu tiên khi spawn |
 | speedUpScore | 10 | ngưỡng điểm bắt đầu tăng tốc ống (R6) |
 | speedUpFactor | 1.15 | hệ số nhân tốc độ ống khi `score ≥ speedUpScore`; áp dụng **một lần** (R6) |
-| currentPipeSpeed | `pipeSpeed × speedUpFactor` nếu `score ≥ speedUpScore`, ngược lại `pipeSpeed` | giá trị dẫn xuất, không lưu trong state: 160 hoặc 184 px/s |
+| FLAGS.difficultyRamp | `true` | feature flag bật/tắt R6; `false` thì tốc độ ống luôn là `pipeSpeed` (160 px/s). Đọc ở tầng ngoài `src/logic`, truyền vào logic như tham số (Section 14) |
+| currentPipeSpeed | `pipeSpeed × speedUpFactor` nếu `difficultyRamp` bật và `score ≥ speedUpScore`, ngược lại `pipeSpeed` | giá trị dẫn xuất, không lưu trong state: 160 hoặc 184 px/s |
 
 ---
 
@@ -101,10 +104,13 @@ interface GameState {
   ```
 - **R6 (Tăng tốc ống):** Tốc độ ống là hàm thuần của `score`:
   ```
-  currentPipeSpeed(score) = score >= speedUpScore ? pipeSpeed * speedUpFactor : pipeSpeed
-  // score < 10  → 160 px/s
-  // score >= 10 → 184 px/s
+  currentPipeSpeed(score, difficultyRamp = true) =
+    difficultyRamp && score >= speedUpScore ? pipeSpeed * speedUpFactor : pipeSpeed
+  // difficultyRamp bật: score < 10 → 160 px/s, score >= 10 → 184 px/s
+  // difficultyRamp tắt: luôn 160 px/s
   ```
+  - `difficultyRamp` là tham số của hàm (mặc định `true`), không phải biến toàn cục: `src/logic` không tự đọc `FLAGS`, để hàm vẫn thuần và test xác định.
+  - Cờ tắt thì R6 không áp dụng: ống giữ 160 px/s ở mọi điểm số. Các luật khác không đổi.
   - Tăng tốc **một lần duy nhất** tại ngưỡng; không tăng lũy tiến (điểm 11, 12, … vẫn là 184 px/s).
   - Áp dụng cho **mọi** ống đang có trên màn hình, không chỉ ống mới spawn, từ bước physics kế tiếp sau khi điểm thứ 10 được cộng.
   - `pipeSpacing` giữ nguyên theo px (220 px), nên khoảng thời gian giữa hai ống giảm từ ≈ 1.375 s xuống ≈ 1.196 s. Điều kiện spawn (Section 7) dựa trên vị trí nên không đổi.
@@ -154,6 +160,7 @@ interface GameState {
 - **E8:** Chuyển tốc độ giữa chừng: điểm thứ 10 được cộng ở bước physics *k* thì bước *k* vẫn dùng 160 px/s, từ bước *k+1* dùng 184 px/s. Kết quả giống nhau ở mọi framerate (E3) vì việc chuyển diễn ra theo bước physics, không theo frame.
 - **E9:** Sau khi tăng tốc, tunneling vẫn không xảy ra: quãng ống dịch chuyển tối đa mỗi bước là 184/60 ≈ 3.07 px, nhỏ hơn `birdRadius` (12 px) và `pipeWidth` (52 px).
 - **E10:** Ván mới (`over → ready`): `score` về 0 nên `currentPipeSpeed` về 160 px/s; ống của ván mới không mang theo tốc độ của ván trước.
+- **E11:** Cờ `difficultyRamp` tắt: `currentPipeSpeed` luôn là 160 px/s, kể cả `score = 10` hoặc `score = 50`. Cờ bật: hành vi giống hệt E8–E10.
 
 ---
 
@@ -174,7 +181,8 @@ interface GameState {
 - `score` không bao giờ giảm trong một ván; reset về 0 khi bắt đầu ván mới.
 - `80 ≤ gapY ≤ 520` với mọi pipe.
 - Mảng `pipes` không chứa pipe đã thoát hoàn toàn khỏi màn hình bên trái.
-- `currentPipeSpeed` chỉ nhận một trong hai giá trị: 160 px/s khi `score < 10`, 184 px/s khi `score ≥ 10`.
+- `currentPipeSpeed` chỉ nhận một trong hai giá trị: 160 px/s khi `score < 10` hoặc khi cờ `difficultyRamp` tắt, 184 px/s khi `score ≥ 10` và cờ bật.
+- Với cờ tắt, `currentPipeSpeed` luôn bằng 160 px/s.
 - Trong một ván, `currentPipeSpeed` không bao giờ giảm.
 
 ---
@@ -188,7 +196,8 @@ Khi thua, ghi log:
   cause: 'floor' | 'ceiling' | 'pipe',
   score: number,   // điểm tại thời điểm chết
   t:     number,   // thời gian game (giây) kể từ khi status='playing'
-  pipeSpeed: number // currentPipeSpeed lúc chết (160 hoặc 184), để phân biệt chết trước/sau tăng tốc
+  pipeSpeed: number, // currentPipeSpeed lúc chết (160 hoặc 184), để phân biệt chết trước/sau tăng tốc
+  difficultyRamp: boolean // giá trị cờ lúc chết, để phân biệt log của hai chế độ
 }
 ```
 
@@ -204,6 +213,7 @@ Khi thua, ghi log:
 - Test E8: dựng state `score = 9` với ống sắp được tính điểm, chạy từng bước, kiểm tra bước chứa điểm thứ 10 dịch ống 160/60 px và bước kế tiếp dịch 184/60 px.
 - Test E10: sau `over → ready`, `currentPipeSpeed = 160`.
 - Property-based thêm: với seed và chuỗi input bất kỳ, `currentPipeSpeed` ∈ {160, 184} và không giảm trong một ván.
+- Test cờ (E11): `currentPipeSpeed(10, false) = 160`, `currentPipeSpeed(50, false) = 160`; `update` với `difficultyRamp: false` chạy tới `score ≥ 10` thì ống vẫn dịch 160/60 px mỗi bước. Cờ bật (hoặc không truyền) cho kết quả giống hệt các test R6 hiện có.
 
 ---
 
@@ -243,5 +253,11 @@ Khi thua, ghi log:
 
 - Không cần ADR mới: R6 là luật gameplay, nằm hoàn toàn trong `src/logic` dưới dạng hàm thuần `currentPipeSpeed(score)`.
 - `render/` và `index.ts` không chứa luật tăng tốc; chúng chỉ đọc `GameState`.
+
+### Feature flag `difficultyRamp` (v0.4)
+
+- Định nghĩa ở `src/flags.ts` (ngoài `src/logic`), đọc lúc build từ biến môi trường Vite `VITE_FLAG_DIFFICULTY_RAMP`: chỉ giá trị `"false"` mới tắt cờ, mọi trường hợp khác (không đặt, rỗng, `"true"`) là bật. Không thêm dependency.
+- Tầng `src/main.ts` đọc cờ và truyền vào `update` / `currentPipeSpeed` như tham số `difficultyRamp`. `src/logic` không import `src/flags.ts`.
+- Rollback: đặt `VITE_FLAG_DIFFICULTY_RAMP=false` rồi build và deploy lại, hoặc revert PR. Cách vận hành ghi ở `docs/decisions.md`.
 
 > Xem chi tiết lý do và checklist kiểm chứng tại [`docs/decisions.md`](docs/decisions.md).

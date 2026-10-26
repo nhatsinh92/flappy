@@ -123,3 +123,41 @@ R6 làm tốc độ ống phụ thuộc vào score. Nếu tính điểm một l�
 ### Cách kiểm chứng
 
 - [ ] Test E8: đưa một frame có nhiều bước physics vào accumulator và so kết quả với việc chạy cùng số bước riêng lẻ; state, score và vị trí ống phải giống nhau.
+
+---
+
+## ADR-004 – Feature flag `difficultyRamp` và rollback
+
+**Ngày:** 2026-10-26
+**Trạng thái:** Đã chốt
+
+### Bối cảnh
+
+R6 (ống nhanh hơn 15% sau 10 điểm) là thay đổi gameplay mới. Nếu người chơi thấy quá khó, cần tắt nhanh mà không phải revert code.
+
+### Phương án
+
+| Phương án | Cách làm | Ưu / nhược |
+| --------- | -------- | ---------- |
+| A | Cờ đọc lúc build từ `VITE_FLAG_DIFFICULTY_RAMP`, truyền vào logic như tham số | Đơn giản, không thêm dependency, người chơi không tự đổi được; đổi cờ phải build và deploy lại |
+| B | Cờ đọc từ query string (`?ramp=off`) | Đổi tức thì, không cần deploy; người chơi tự đổi được, khó đảm bảo cả hai nhánh được kiểm tra |
+| C | Logic tự đọc biến toàn cục `FLAGS` | Ít sửa chữ ký hàm; làm logic không còn thuần, test phụ thuộc môi trường |
+
+### Quyết định
+
+**Chọn phương án A.** Cờ nằm ở `src/flags.ts` (ngoài `src/logic`). `src/main.ts` đọc cờ và truyền vào `update` / `currentPipeSpeed` qua tham số `difficultyRamp` (mặc định `true`). Chỉ giá trị `"false"` mới tắt cờ; không đặt, rỗng hoặc `"true"` đều bật.
+
+### Rollback
+
+Có hai cách; chọn cách nhanh nhất cho tình huống:
+
+1. **Tắt cờ:** đặt `VITE_FLAG_DIFFICULTY_RAMP=false` trong môi trường build (CI hoặc `.env.production`), build và deploy lại. Ống giữ 160 px/s ở mọi điểm số (E11); code R6 vẫn còn.
+2. **Revert PR:** `git revert` PR đã thêm tính năng, để CI chạy rồi deploy lại. Dùng khi lỗi nằm ở chính code của R6.
+
+Bật lại: bỏ biến hoặc đặt `true`, build và deploy lại.
+
+### Cách kiểm chứng
+
+- [ ] Test E11 (`tests/difficulty-flag.test.ts`): cờ tắt thì ống luôn 160/60 px mỗi bước; cờ bật hoặc không truyền thì như R6.
+- [ ] Diễn tập: build với `VITE_FLAG_DIFFICULTY_RAMP=false`, chơi qua 10 điểm và xác nhận ống không tăng tốc; build lại không đặt biến, xác nhận ống tăng tốc sau điểm thứ 10.
+- [ ] Log `death` có trường `difficultyRamp` để phân biệt dữ liệu của hai chế độ.
