@@ -7,6 +7,7 @@ import {
   update,
   type State,
 } from "./logic/index";
+import { FLAGS } from "./flags";
 import { draw } from "./render/draw";
 import { createInputManager } from "./input";
 
@@ -101,6 +102,7 @@ window.addEventListener(
 // 4. Vòng lặp game
 let state: State = initialState(getSeed());
 let lastTimestamp: number | null = null;
+const flagOptions = { difficultyRamp: FLAGS.difficultyRamp };
 
 function logDeathIfNeeded(prevState: State, nextState: State): void {
   if (prevState.status === "playing" && nextState.status === "over") {
@@ -115,7 +117,8 @@ function logDeathIfNeeded(prevState: State, nextState: State): void {
       cause,
       score: nextState.score,
       t: nextState.t,
-      pipeSpeed: currentPipeSpeed(nextState.score),
+      pipeSpeed: currentPipeSpeed(nextState.score, FLAGS.difficultyRamp),
+      difficultyRamp: FLAGS.difficultyRamp,
     });
   }
 }
@@ -138,11 +141,11 @@ function frame(timestamp: number): void {
     if (flap) {
       // ready -> playing khi flap lần đầu (Section 3)
       state = { ...state, status: "playing" };
-      state = update(state, { flap: true }, dtFrame);
+      state = update(state, { flap: true }, dtFrame, flagOptions);
     }
   } else if (state.status === "playing") {
     const prevState = state;
-    state = update(state, { flap }, dtFrame);
+    state = update(state, { flap }, dtFrame, flagOptions);
     logDeathIfNeeded(prevState, state);
   } else if (state.status === "over") {
     if (flap) {

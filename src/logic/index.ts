@@ -42,8 +42,15 @@ export const MAX_FRAME_DT = 0.05;
 export const MIN_GAP_Y = 80;
 export const MAX_GAP_Y = 520;
 
-export function currentPipeSpeed(score: number): number {
-  return score >= SPEED_UP_SCORE ? PIPE_SPEED * SPEED_UP_FACTOR : PIPE_SPEED;
+/** Tùy chọn cho update; cờ được truyền vào, logic không tự đọc FLAGS (SPEC R6). */
+export interface UpdateOptions {
+  difficultyRamp?: boolean;
+}
+
+export function currentPipeSpeed(score: number, difficultyRamp = true): number {
+  return difficultyRamp && score >= SPEED_UP_SCORE
+    ? PIPE_SPEED * SPEED_UP_FACTOR
+    : PIPE_SPEED;
 }
 
 /** Tạo PRNG mulberry32 từ seed số nguyên (deterministic, E5). */
@@ -198,7 +205,9 @@ export function update<T extends State>(
   state: T,
   input: Input,
   dtFrame: number,
+  options: UpdateOptions = {},
 ): T {
+  const difficultyRamp = options.difficultyRamp ?? true;
   if (state.status !== "playing") {
     return { ...state };
   }
@@ -221,7 +230,7 @@ export function update<T extends State>(
     accumulator -= PHYSICS_STEP;
     if (accumulator < 0 && accumulator > -Number.EPSILON) accumulator = 0;
     t += PHYSICS_STEP;
-    const stepPipeSpeed = currentPipeSpeed(score);
+    const stepPipeSpeed = currentPipeSpeed(score, difficultyRamp);
     const stepResult = stepSimulation(bird, pipes, rng, stepPipeSpeed);
     status = stepResult.status;
     score += stepResult.scoreGained;
